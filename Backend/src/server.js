@@ -1,9 +1,9 @@
-// MUST be the first import to load environment variables
+// Load environment variables FIRST
 import './config/env.js';
 
-// Now import everything else
+// Then import everything else
 import app from './app.js';
-import { initOraclePool, initSqliteDb } from './config/db.js';
+import { initOraclePool, initPmsPool } from './config/db.js';
 import logger from './config/logger.js';
 
 const PORT = process.env.PORT || 5000;
@@ -11,7 +11,7 @@ const PORT = process.env.PORT || 5000;
 async function startServer() {
   try {
     await initOraclePool();
-    await initSqliteDb();
+    await initPmsPool();
 
     app.listen(PORT, () => {
       logger.info(`🚀 Server running on port ${PORT}`);

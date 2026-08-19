@@ -83,3 +83,34 @@ logger.debug(`BSA response data: ${JSON.stringify(response.data)}`);
     throw error;
   }
 }
+
+export async function getReportStatus(filename) {
+  try {
+    const token = await ensureToken();
+    const url = `${bsaConfig.baseURL}/api/Status/v${bsaConfig.version}?fileName=${encodeURIComponent(filename)}`;
+    logger.info(`📊 Checking status for: ${filename}`);
+
+    const response = await axios.get(url, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'text/plain',
+      },
+      timeout: 15000,
+    });
+
+    if (response.status === 200) {
+      logger.info(`✅ Status retrieved for ${filename}`);
+      return response.data;
+    } else {
+      logger.warn(`⚠️ Status check returned ${response.status}`);
+      return null;
+    }
+  } catch (error) {
+    if (error.response) {
+      logger.error(`❌ Status check error: ${error.response.status} - ${JSON.stringify(error.response.data)}`);
+    } else {
+      logger.error(`❌ Status check error: ${error.message}`);
+    }
+    return null;
+  }
+}

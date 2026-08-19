@@ -1,4 +1,4 @@
-// SINGLE_CURRENCYOP001.js – complete, corrected configuration with dataFetcher
+// SINGLE_CURRENCYOP001.js – correct order (CBS first, then calculations)
 
 import { fetchCbsData } from '../../services/cbsService.js';
 
@@ -8,13 +8,11 @@ const CURRENCIES = [
   'KWD', 'Others1', 'Others2', 'Others3'
 ];
 
-// Helper: generate code from start and index
 const getCode = (start, index) => {
   const num = start + index;
   return `164_${String(num).padStart(5, '0')}`;
 };
 
-// Start codes for each category (first code for USD)
 const STARTS = {
   ON_BALANCE_ASSET: 1,          // 164_00001
   CURRENCY_ON_HAND: 21,         // 164_00021
@@ -55,7 +53,6 @@ const STARTS = {
 const generateFields = () => {
   const fields = [];
 
-  // Helper to add a CBS category (all currencies)
   const addCbsCategory = (startCode, cbsKey, descriptionPrefix) => {
     CURRENCIES.forEach((currency, idx) => {
       const code = getCode(startCode, idx);
@@ -72,7 +69,6 @@ const generateFields = () => {
     });
   };
 
-  // Helper to add a calculated sum that sums specific child categories
   const addSum = (startCode, descriptionPrefix, childStarts) => {
     CURRENCIES.forEach((currency, idx) => {
       const code = getCode(startCode, idx);
@@ -93,7 +89,6 @@ const generateFields = () => {
     });
   };
 
-  // Helper to add a simple binary calculation (e.g., Total Foreign Assets = OnBalance + OffBalance)
   const addBinaryCalc = (startCode, descriptionPrefix, code1Start, code2Start) => {
     CURRENCIES.forEach((currency, idx) => {
       const code = getCode(startCode, idx);
@@ -111,7 +106,6 @@ const generateFields = () => {
     });
   };
 
-  // Helper for multiplication (e.g., Net Long * Mid Rate)
   const addMulCalc = (startCode, descriptionPrefix, code1Start, code2Start) => {
     CURRENCIES.forEach((currency, idx) => {
       const code = getCode(startCode, idx);
@@ -129,7 +123,6 @@ const generateFields = () => {
     });
   };
 
-  // Helper for max between two fields
   const addMaxCalc = (startCode, descriptionPrefix, code1Start, code2Start) => {
     CURRENCIES.forEach((currency, idx) => {
       const code = getCode(startCode, idx);
@@ -147,7 +140,6 @@ const generateFields = () => {
     });
   };
 
-  // Helper for ratio (Net Open Position / Tier1 Capital) * 100
   const addRatioCalc = (startCode, descriptionPrefix, code1Start) => {
     CURRENCIES.forEach((currency, idx) => {
       const code = getCode(startCode, idx);
@@ -166,9 +158,7 @@ const generateFields = () => {
     });
   };
 
-  // -------------------------------------------------------
-  // 1. FIRST: All CBS fields (individual categories)
-  // -------------------------------------------------------
+  // ==================== CBS FIELDS FIRST ====================
   addCbsCategory(STARTS.CURRENCY_ON_HAND, 'currencyOnHand', 'Currency on hand');
   addCbsCategory(STARTS.DUE_FROM_BANKS, 'dueFromBanks', 'Due from banks');
   addCbsCategory(STARTS.CHEQUES_IN_TRANSIT, 'chequesInTransit', 'Cheques and items in transit');
@@ -204,11 +194,8 @@ const generateFields = () => {
     cbsQuery: (rawData) => rawData.tier1Capital || 0
   });
 
-  // -------------------------------------------------------
-  // 2. THEN: All calculated fields (depend on CBS fields)
-  // -------------------------------------------------------
-
-  // 1.1 On-balance Sheet Items = sum of six child categories
+  // ==================== CALCULATED FIELDS (DEPEND ON CBS) ====================
+  // 1.1 On-balance Sheet Items
   addSum(STARTS.ON_BALANCE_ASSET, 'On-balance Sheet Items', [
     STARTS.CURRENCY_ON_HAND,
     STARTS.DUE_FROM_BANKS,
@@ -218,7 +205,7 @@ const generateFields = () => {
     STARTS.OTHER_ASSETS
   ]);
 
-  // 1.2 Off-balance Sheet Items = sum of four child categories
+  // 1.2 Off-balance Sheet Items
   addSum(STARTS.OFF_BALANCE_ASSET, 'Off-balance Sheet Items', [
     STARTS.UNDELIVERED_SPOT_PURCHASE,
     STARTS.FORWARD_PURCHASE,
@@ -226,11 +213,11 @@ const generateFields = () => {
     STARTS.OTHER_ASSETS_OFF
   ]);
 
-  // Total Foreign Assets = OnBalance + OffBalance
+  // Total Foreign Assets
   addBinaryCalc(STARTS.TOTAL_FOREIGN_ASSETS, 'Total Foreign Assets',
     STARTS.ON_BALANCE_ASSET, STARTS.OFF_BALANCE_ASSET);
 
-  // 2.1 On-balance Liabilities = sum of five child categories
+  // 2.1 On-balance Liabilities
   addSum(STARTS.ON_BALANCE_LIABILITY, 'On-balance Sheet Items (Liabilities)', [
     STARTS.DUE_TO_BANKS_ABROAD,
     STARTS.FOREIGN_CURRENCY_DEPOSITS,
@@ -239,7 +226,7 @@ const generateFields = () => {
     STARTS.OTHER_LIABILITIES
   ]);
 
-  // 2.2 Off-balance Liabilities = sum of six child categories
+  // 2.2 Off-balance Liabilities
   addSum(STARTS.OFF_BALANCE_LIABILITY, 'Off-balance Sheet Items (Liabilities)', [
     STARTS.UNDELIVERED_SPOT_SALES,
     STARTS.FORWARD_SALES,
@@ -249,11 +236,11 @@ const generateFields = () => {
     STARTS.OTHER_LIABILITIES_OFF
   ]);
 
-  // Total Foreign Liabilities = OnBalanceLiab + OffBalanceLiab
+  // Total Foreign Liabilities
   addBinaryCalc(STARTS.TOTAL_FOREIGN_LIABILITIES, 'Total Foreign Liabilities',
     STARTS.ON_BALANCE_LIABILITY, STARTS.OFF_BALANCE_LIABILITY);
 
-  // Net long position (max(Assets - Liabilities, 0))
+  // Net long position
   CURRENCIES.forEach((currency, idx) => {
     const code = getCode(STARTS.NET_LONG, idx);
     fields.push({
@@ -269,7 +256,7 @@ const generateFields = () => {
     });
   });
 
-  // Net short position (max(Liabilities - Assets, 0))
+  // Net short position
   CURRENCIES.forEach((currency, idx) => {
     const code = getCode(STARTS.NET_SHORT, idx);
     fields.push({
@@ -285,23 +272,23 @@ const generateFields = () => {
     });
   });
 
-  // Net long position in Birr = NetLong * MidRate
+  // Net long position in Birr
   addMulCalc(STARTS.NET_LONG_BIRR, 'Net long position in Birr',
     STARTS.NET_LONG, STARTS.MID_EXCHANGE_RATE);
 
-  // Net short position in Birr = NetShort * MidRate
+  // Net short position in Birr
   addMulCalc(STARTS.NET_SHORT_BIRR, 'Net short position in Birr',
     STARTS.NET_SHORT, STARTS.MID_EXCHANGE_RATE);
 
-  // Net open position = max(NetLongBirr, NetShortBirr)
+  // Net open position
   addMaxCalc(STARTS.NET_OPEN_POSITION, 'Net open position',
     STARTS.NET_LONG_BIRR, STARTS.NET_SHORT_BIRR);
 
-  // Net open position ratio = (NetOpenPosition / Tier1Capital) * 100
+  // Net open position ratio
   addRatioCalc(STARTS.NET_OPEN_POSITION_RATIO, 'Net open position Ratio',
     STARTS.NET_OPEN_POSITION);
 
-  // Overall Exposure fields (not per currency)
+  // Overall Exposure fields
   fields.push({
     code: '164_00681',
     description: 'Total long position (Sum of row 5)_Overall Exposure',
@@ -357,20 +344,15 @@ const generateFields = () => {
     }
   });
 
-  // Sort fields by code for consistent order
-  fields.sort((a, b) => {
-    const numA = parseInt(a.code.split('_')[1], 10);
-    const numB = parseInt(b.code.split('_')[1], 10);
-    return numA - numB;
-  });
-
+  // DO NOT SORT – keep dependency order (CBS first, then calculations)
   return fields;
 };
 
 export default {
-  reportKey: 'SINGLE_CURRENCYOP001',
+  reportKey: 'SINGLE CURRENCYOP001',
   instCode: process.env.BSA_INST_CODE,
   finYear: new Date().getFullYear(),
-  dataFetcher: fetchCbsData,  // <-- Added to work with new processor
+  dataFetcher: fetchCbsData,
+  includeZeroValues: false,  // include all fields
   fields: generateFields(),
 };

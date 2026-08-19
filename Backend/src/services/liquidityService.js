@@ -18,9 +18,31 @@ export async function fetchLiquidityData(startDate, endDate) {
       SELECT TO_DATE(:startDate, 'DD-MON-YYYY') + LEVEL - 1 AS as_on_date
       FROM DUAL
       CONNECT BY LEVEL <= (TO_DATE(:endDate, 'DD-MON-YYYY') - TO_DATE(:startDate, 'DD-MON-YYYY') + 1)
+    ),
+    -- For each date in date_range, find the latest balance_sheet date <= that date
+    latest_balance_for_date AS (
+      SELECT
+        dr.as_on_date AS report_date,
+        (
+          SELECT MAX(b.as_on_date)
+          FROM FCUBSLIVE.balance_sheet b
+          WHERE b.as_on_date <= dr.as_on_date
+        ) AS balance_date
+      FROM date_range dr
+    ),
+    -- Get the actual balance data for those balance_dates
+    balance_data AS (
+      SELECT
+        lb.report_date,
+        b.as_on_date,
+        b.product_type,
+        b.account_code,
+        b.lcy_amount
+      FROM latest_balance_for_date lb
+      LEFT JOIN FCUBSLIVE.balance_sheet b ON lb.balance_date = b.as_on_date
     )
     SELECT
-      dr.as_on_date,
+      report_date AS as_on_date,
       -- Demand Deposit (CURRENT accounts, excluding 3010106)
       COALESCE(SUM(CASE WHEN b.product_type = 'CURRENT' AND b.account_code <> '3010106' THEN b.lcy_amount END), 0) AS demand_deposit,
       -- Saving Deposit
@@ -45,10 +67,9 @@ export async function fetchLiquidityData(startDate, endDate) {
       COALESCE(SUM(CASE WHEN b.account_code LIKE '10203%' OR b.account_code LIKE '10204%' OR b.account_code = '1030202' THEN b.lcy_amount END), 0) AS deposit_wz_other_banks,
       -- Treasury bill
       COALESCE(SUM(CASE WHEN b.account_code IN ('1030101','1030107') THEN b.lcy_amount END), 0) AS treasury_bill
-    FROM date_range dr
-    LEFT JOIN FCUBSLIVE.balance_sheet b ON dr.as_on_date = b.as_on_date
-    GROUP BY dr.as_on_date
-    ORDER BY dr.as_on_date
+    FROM balance_data b
+    GROUP BY report_date
+    ORDER BY report_date
   `;
 
   const result = await executeOracleQuery(query, {
@@ -72,7 +93,7 @@ export async function fetchLiquidityData(startDate, endDate) {
     treasuryBill: parseFloat(row.TREASURY_BILL) || 0,
   }));
 
-  logger.info(`Fetched liquidity data for ${dailyData.length} days (exact).`);
+  logger.info(`Fetched liquidity data for ${dailyData.length} days (using latest available balance).`);
   return dailyData;
 }
 

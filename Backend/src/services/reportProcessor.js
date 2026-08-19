@@ -1,33 +1,28 @@
 import logger from '../config/logger.js';
-import { submitReport } from './bsaService.js';
-import { saveSubmissionHistory } from '../utils/history.js';
+import { submitReport, getReportStatus } from './bsaService.js';
 import { formatLocalDateTime } from '../utils/dateHelpers.js';
+import * as submissionModel from '../models/submissionModel.js';
 
 export async function buildReportPayload(reportKey, startDate, endDate) {
-  // Sanitize report key for file name (replace spaces with underscores)
   const safeReportKey = reportKey.replace(/\s+/g, '_');
   const configModule = await import(`../config/reports/${safeReportKey}.js`);
   let config = configModule.default;
 
-  // If config is a function (for dynamic loading), call it
   if (typeof config === 'function') {
     config = config();
   }
 
-  // Fetch raw data using dataFetcher
   if (typeof config.dataFetcher !== 'function') {
     throw new Error(`Report ${reportKey} does not have a dataFetcher.`);
   }
   const rawData = await config.dataFetcher(startDate, endDate);
 
-  // Prepare the config (e.g., generate fields dynamically)
   if (typeof config.prepare === 'function') {
     config.prepare(rawData);
   }
 
   const fieldMap = {};
 
-  // Process each field
   for (const field of config.fields) {
     let value = null;
     if (field.source === 'cbs') {
@@ -38,7 +33,6 @@ export async function buildReportPayload(reportKey, startDate, endDate) {
       }
     } else if (field.source === 'calculated') {
       if (typeof field.calculation === 'function') {
-        // Pass fieldMap and rawData (for new reports that need it)
         value = field.calculation(fieldMap, rawData);
       } else {
         value = 0;
@@ -51,10 +45,20 @@ export async function buildReportPayload(reportKey, startDate, endDate) {
     fieldMap[field.code] = value;
   }
 
-  // Build ReturnItemsList – exclude zero values
+  // Build ReturnItemsList
   const returnItemsList = [];
+  const includeZeroValues = config.includeZeroValues === true;
+
   for (const field of config.fields) {
     const value = fieldMap[field.code];
+    if (includeZeroValues) {
+      returnItemsList.push({
+        Code: field.code,
+        Value: String(value !== undefined && value !== null ? value : 0)
+      });
+      continue;
+    }
+    // Skip zero values
     if (value === 0 || value === '0' || value === undefined || value === null) {
       continue;
     }
@@ -84,11 +88,59 @@ export async function processReport(reportKey, startDate, endDate) {
   try {
     const payload = await buildReportPayload(reportKey, startDate, endDate);
     logger.info(`📦 Payload built with ${payload.ReturnItemsList.length} items.`);
+
     const response = await submitReport(payload);
-    await saveSubmissionHistory(reportKey, 'SUCCESS', JSON.stringify(response), null);
-    return response;
+    logger.info(`✅ Report submitted successfully.`);
+
+    const filename = response?.filename || payload.Filename || `${reportKey}_${startDate.toISOString().slice(0,10)}.json`;
+
+    const submissionId = await submissionModel.createSubmission({
+      report_key: reportKey,
+      filename: filename,
+      start_date: startDate,
+      end_date: endDate,
+      status: 'submitted',
+      response: JSON.stringify(response),
+    });
+
+    setTimeout(async () => {
+      try {
+        logger.info(`⏳ Checking status for submission ${submissionId} (${filename})`);
+        const statusData = await getReportStatus(filename);
+        if (statusData) {
+          await submissionModel.updateSubmission(submissionId, {
+            bsa_status: statusData.status,
+            bsa_notification: JSON.stringify(statusData.notification || ''),
+            processing_results: JSON.stringify(statusData.processingResults || []),
+            status_checked_at: new Date(),
+            status: statusData.status === 'Processed' ? 'success' : statusData.status === 'Failed' ? 'failed' : 'processing',
+          });
+          logger.info(`✅ Status updated for submission ${submissionId}: ${statusData.status}`);
+        } else {
+          await submissionModel.updateSubmission(submissionId, {
+            status: 'processing',
+            status_checked_at: new Date(),
+          });
+          logger.warn(`⚠️ Status check returned no data for ${filename}`);
+        }
+      } catch (error) {
+        logger.error(`❌ Status check failed for submission ${submissionId}: ${error.message}`);
+        await submissionModel.updateSubmission(submissionId, {
+          error: `Status check failed: ${error.message}`,
+        });
+      }
+    }, 1 * 60 * 1000);
+
+    return { ...response, submissionId };
   } catch (error) {
-    await saveSubmissionHistory(reportKey, 'FAILED', null, error.message);
+    logger.error(`❌ Report processing failed: ${error.message}`);
+    await submissionModel.createSubmission({
+      report_key: reportKey,
+      status: 'failed',
+      error: error.message,
+      start_date: startDate,
+      end_date: endDate,
+    });
     throw error;
   }
 }
