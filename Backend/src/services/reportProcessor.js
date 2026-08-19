@@ -1,41 +1,70 @@
 import logger from '../config/logger.js';
-import { fetchCbsData } from './cbsService.js';
 import { submitReport } from './bsaService.js';
 import { saveSubmissionHistory } from '../utils/history.js';
 import { formatLocalDateTime } from '../utils/dateHelpers.js';
 
 export async function buildReportPayload(reportKey, startDate, endDate) {
-  const configModule = await import(`../config/reports/SINGLE_CURRENCYOP001.js`);
-  const config = configModule.default;
-  const rawData = await fetchCbsData(startDate, endDate);
+  // Sanitize report key for file name (replace spaces with underscores)
+  const safeReportKey = reportKey.replace(/\s+/g, '_');
+  const configModule = await import(`../config/reports/${safeReportKey}.js`);
+  let config = configModule.default;
+
+  // If config is a function (for dynamic loading), call it
+  if (typeof config === 'function') {
+    config = config();
+  }
+
+  // Fetch raw data using dataFetcher
+  if (typeof config.dataFetcher !== 'function') {
+    throw new Error(`Report ${reportKey} does not have a dataFetcher.`);
+  }
+  const rawData = await config.dataFetcher(startDate, endDate);
+
+  // Prepare the config (e.g., generate fields dynamically)
+  if (typeof config.prepare === 'function') {
+    config.prepare(rawData);
+  }
+
   const fieldMap = {};
 
-  // Compute all fields in the original order (which respects dependencies)
+  // Process each field
   for (const field of config.fields) {
     let value = null;
     if (field.source === 'cbs') {
       if (typeof field.cbsQuery === 'function') {
         value = field.cbsQuery(rawData);
-      } else value = 0;
+      } else {
+        value = 0;
+      }
     } else if (field.source === 'calculated') {
       if (typeof field.calculation === 'function') {
-        value = field.calculation(fieldMap);
-      } else value = 0;
+        // Pass fieldMap and rawData (for new reports that need it)
+        value = field.calculation(fieldMap, rawData);
+      } else {
+        value = 0;
+      }
     } else if (field.source === 'static') {
       value = field.value;
-    } else value = 0;
-    if (typeof value !== 'number') value = parseFloat(value) || 0;
+    } else {
+      value = 0;
+    }
     fieldMap[field.code] = value;
   }
 
-  // Build the ReturnItemsList sorted by code ascending (164_00001 to 164_00686)
-  const sortedCodes = Object.keys(fieldMap).sort((a, b) => a.localeCompare(b));
-  const returnItemsList = sortedCodes.map(code => ({
-    Code: code,
-    Value: fieldMap[code]?.toString() || '0'
-  }));
+  // Build ReturnItemsList – exclude zero values
+  const returnItemsList = [];
+  for (const field of config.fields) {
+    const value = fieldMap[field.code];
+    if (value === 0 || value === '0' || value === undefined || value === null) {
+      continue;
+    }
+    returnItemsList.push({
+      Code: field.code,
+      Value: String(value)
+    });
+  }
 
-  const dateStr = startDate.toISOString().slice(0,10);
+  const dateStr = startDate.toISOString().slice(0, 10);
   const filename = `${reportKey}_${dateStr}.json`;
 
   const payload = {
@@ -45,7 +74,7 @@ export async function buildReportPayload(reportKey, startDate, endDate) {
     StartDate: formatLocalDateTime(startDate),
     EndDate: formatLocalDateTime(endDate),
     ReturnItemsList: returnItemsList,
-    DynamicItemsList: []
+    DynamicItemsList: [],
   };
 
   return payload;

@@ -1,35 +1,82 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { triggerReport, previewReport } from '../services/api';
 import dictionaryData from '../data/dictionary.json';
 
-type SortField = 'code' | 'description' | 'value';
+type SortField = 'code' | 'value';
 type SortDirection = 'asc' | 'desc';
+
+const REPORTS = [
+  { key: 'SINGLE_CURRENCYOP001', name: 'Single Currency OP001', isWeekly: false },
+  { key: 'LSR-Statutory ZS001', name: 'Liquidity Requirement Report', isWeekly: true },
+];
 
 const Dashboard: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [payloadPreview, setPayloadPreview] = useState<any>(null);
+  const [selectedReport, setSelectedReport] = useState<string>(REPORTS[0].key);
   const [selectedDate, setSelectedDate] = useState<string>(
+    new Date().toISOString().slice(0, 10)
+  );
+  const [startDate, setStartDate] = useState<string>(
+    new Date().toISOString().slice(0, 10)
+  );
+  const [endDate, setEndDate] = useState<string>(
     new Date().toISOString().slice(0, 10)
   );
   const [showZeroValues, setShowZeroValues] = useState(true);
   const [sortField, setSortField] = useState<SortField>('code');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
 
+  const currentReport = REPORTS.find(r => r.key === selectedReport);
+  const isWeekly = currentReport?.isWeekly || false;
+
+  // Auto-populate weekly date range when report changes to liquidity
+  const setWeeklyRange = () => {
+    const today = new Date();
+    const day = today.getDay();
+    let daysToThursday = (day - 4 + 7) % 7;
+    const start = new Date(today);
+    start.setDate(today.getDate() - daysToThursday);
+    const end = new Date(start);
+    end.setDate(start.getDate() + 6);
+    setStartDate(start.toISOString().slice(0, 10));
+    setEndDate(end.toISOString().slice(0, 10));
+  };
+
+  useEffect(() => {
+    if (isWeekly) {
+      setWeeklyRange();
+    }
+  }, [isWeekly]);
+
   // Build description map from dictionary
+  const dictionaryForReport = (dictionaryData as any)[selectedReport] || { ReturnItemsList: [] };
   const descriptionMap: Record<string, string> = {};
-  (dictionaryData.ReturnItemsList || []).forEach(item => {
+  (dictionaryForReport.ReturnItemsList || []).forEach((item: any) => {
     if (item.Code && item._description) {
       descriptionMap[item.Code] = item._description;
     }
   });
 
-  const handleTrigger = async (reportKey: string) => {
+  const handleTrigger = async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await triggerReport(reportKey, selectedDate);
+      let dateParam;
+      if (isWeekly) {
+        if (!startDate || !endDate) {
+          setError('Please select both start and end dates.');
+          setLoading(false);
+          return;
+        }
+        dateParam = `${startDate}/${endDate}`;
+      } else {
+        dateParam = selectedDate;
+      }
+      console.log('📤 Triggering with dateParam:', dateParam);
+      const res = await triggerReport(selectedReport, dateParam);
       setResult(res);
     } catch (err: any) {
       setError(err.response?.data?.error || err.message);
@@ -38,10 +85,21 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const handlePreview = async (reportKey: string) => {
+  const handlePreview = async () => {
     setError(null);
     try {
-      const data = await previewReport(reportKey, selectedDate);
+      let dateParam;
+      if (isWeekly) {
+        if (!startDate || !endDate) {
+          setError('Please select both start and end dates.');
+          return;
+        }
+        dateParam = `${startDate}/${endDate}`;
+      } else {
+        dateParam = selectedDate;
+      }
+      console.log('📤 Previewing with dateParam:', dateParam);
+      const data = await previewReport(selectedReport, dateParam);
       setPayloadPreview(data);
     } catch (err: any) {
       setError(err.response?.data?.error || err.message);
@@ -54,12 +112,11 @@ const Dashboard: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `payload_${selectedDate}.json`;
+    a.download = `payload_${isWeekly ? `${startDate}_to_${endDate}` : selectedDate}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };
 
-  // Toggle sort on a field
   const handleSort = (field: SortField) => {
     if (sortField === field) {
       setSortDirection(prev => (prev === 'asc' ? 'desc' : 'asc'));
@@ -69,7 +126,6 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  // Compute filtered and sorted list
   const previewWithDesc = useMemo(() => {
     if (!payloadPreview?.ReturnItemsList) return [];
 
@@ -78,12 +134,10 @@ const Dashboard: React.FC = () => {
       description: descriptionMap[item.Code] || 'No description'
     }));
 
-    // Filter zero values if toggle is off
     if (!showZeroValues) {
       items = items.filter(item => item.Value !== '0');
     }
 
-    // Sort
     const compare = (a: any, b: any) => {
       let valA, valB;
       switch (sortField) {
@@ -91,12 +145,7 @@ const Dashboard: React.FC = () => {
           valA = a.Code;
           valB = b.Code;
           break;
-        case 'description':
-          valA = a.description.toLowerCase();
-          valB = b.description.toLowerCase();
-          break;
         case 'value':
-          // Convert to number for numeric sorting, fallback to string
           valA = parseFloat(a.Value);
           valB = parseFloat(b.Value);
           if (isNaN(valA)) valA = a.Value;
@@ -106,7 +155,6 @@ const Dashboard: React.FC = () => {
           valA = a.Code;
           valB = b.Code;
       }
-
       if (valA < valB) return sortDirection === 'asc' ? -1 : 1;
       if (valA > valB) return sortDirection === 'asc' ? 1 : -1;
       return 0;
@@ -118,32 +166,71 @@ const Dashboard: React.FC = () => {
 
   const totalFields = payloadPreview?.ReturnItemsList?.length || 0;
 
+  const reportDisplayName = currentReport?.name || selectedReport;
+
   return (
     <div className="container">
-      <h1>NBE BSA Report Submitter</h1>
+      <header className="report-header">
+        <h1>{reportDisplayName}</h1>
+        <div className="report-selector">
+          <label htmlFor="reportSelect">Report:</label>
+          <select
+            id="reportSelect"
+            value={selectedReport}
+            onChange={(e) => setSelectedReport(e.target.value)}
+          >
+            {REPORTS.map(report => (
+              <option key={report.key} value={report.key}>{report.name}</option>
+            ))}
+          </select>
+        </div>
+      </header>
 
-      <div className="card">
+      <div className="card controls-card">
         <div className="controls">
-          <div className="field">
-            <label htmlFor="reportDate">Report Date</label>
-            <input
-              id="reportDate"
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-            />
-          </div>
+          {isWeekly ? (
+            <>
+              <div className="field">
+                <label htmlFor="startDate">Start Date</label>
+                <input
+                  id="startDate"
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="endDate">End Date</label>
+                <input
+                  id="endDate"
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                />
+              </div>
+            </>
+          ) : (
+            <div className="field">
+              <label htmlFor="reportDate">Report Date</label>
+              <input
+                id="reportDate"
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+              />
+            </div>
+          )}
           <div className="actions">
             <button
               className="btn btn-primary"
-              onClick={() => handleTrigger('SINGLE_CURRENCYOP001')}
+              onClick={handleTrigger}
               disabled={loading}
             >
               {loading ? 'Submitting...' : 'Run Report'}
             </button>
             <button
               className="btn btn-secondary"
-              onClick={() => handlePreview('SINGLE_CURRENCYOP001')}
+              onClick={handlePreview}
             >
               Preview Payload
             </button>
@@ -161,19 +248,17 @@ const Dashboard: React.FC = () => {
       </div>
 
       {result && (
-        <div className="card">
-          <h3 style={{ fontSize: '1.125rem', fontWeight: 600, marginBottom: '0.5rem' }}>
-            Submission Result
-          </h3>
+        <div className="card result-card">
+          <h3>Submission Result</h3>
           <pre>{JSON.stringify(result, null, 2)}</pre>
         </div>
       )}
 
       {payloadPreview && (
-        <div className="card">
-          <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-            <h3 style={{ fontSize: '1.125rem', fontWeight: 600 }}>
-              Payload Preview – <span id="fieldCount">{previewWithDesc.length}</span> / {totalFields} fields
+        <div className="card payload-card">
+          <div className="payload-header">
+            <h3>
+              Payload Preview – <span>{previewWithDesc.length}</span> / {totalFields} fields
             </h3>
             <div>
               <button
@@ -191,10 +276,7 @@ const Dashboard: React.FC = () => {
               <thead>
                 <tr>
                   <th onClick={() => handleSort('code')} style={{ cursor: 'pointer' }}>
-                    Code {sortField === 'code' && (sortDirection === 'asc' ? '▲' : '▼')}
-                  </th>
-                  <th onClick={() => handleSort('description')} style={{ cursor: 'pointer' }}>
-                    Description {sortField === 'description' && (sortDirection === 'asc' ? '▲' : '▼')}
+                    Code &amp; Description {sortField === 'code' && (sortDirection === 'asc' ? '▲' : '▼')}
                   </th>
                   <th onClick={() => handleSort('value')} style={{ cursor: 'pointer' }}>
                     Value {sortField === 'value' && (sortDirection === 'asc' ? '▲' : '▼')}
@@ -204,14 +286,18 @@ const Dashboard: React.FC = () => {
               <tbody>
                 {previewWithDesc.map((item: any, idx: number) => (
                   <tr key={idx}>
-                    <td className="code">{item.Code}</td>
-                    <td className="description" title={item.description}>{item.description}</td>
+                    <td>
+                      <span className="code">{item.Code}</span>
+                      <span className="description" title={item.description}>
+                        – {item.description}
+                      </span>
+                    </td>
                     <td className="value">{item.Value}</td>
                   </tr>
                 ))}
                 {previewWithDesc.length === 0 && (
                   <tr>
-                    <td colSpan={3} style={{ textAlign: 'center', padding: '2rem', color: '#64748b' }}>
+                    <td colSpan={2} style={{ textAlign: 'center', padding: '2rem', color: '#64748b' }}>
                       No fields match the current filters.
                     </td>
                   </tr>

@@ -1,4 +1,5 @@
 {
+  "SINGLE_CURRENCYOP001": {
   "ReturnKey": "SINGLE CURRENCYOP001",
   "InstCode": "0000017",
   "FinYear": 2026,
@@ -4123,4 +4124,519 @@
     }
   ],
   "DynamicItemsList": []
+},
+  "LSR-Statutory ZS001": {
+  "ReturnKey": "LSR-Statutory ZS001",
+  "InstCode": "0000017",
+  "FinYear": 2026,
+  "StartDate": "2026-08-06T00:00:00",
+  "EndDate": "2026-08-12T00:00:00",
+  "ReturnItemsList": [
+    {
+      "Code": "109_00001",
+      "Value": "",
+      "_description": "Net current liabilities_Thu",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00002",
+      "Value": "",
+      "_description": "Net current liabilities_Fri",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00003",
+      "Value": "",
+      "_description": "Net current liabilities_Sat",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00004",
+      "Value": "",
+      "_description": "Net current liabilities_Sun",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00005",
+      "Value": "",
+      "_description": "Net current liabilities_Mon",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00006",
+      "Value": "",
+      "_description": "Net current liabilities_Tue",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00007",
+      "Value": "",
+      "_description": "Net current liabilities_Wed",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00008",
+      "Value": "",
+      "_description": "Net current liabilities_Weekly Average",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00009",
+      "Value": "",
+      "_description": "Cash - local and foreign currency_Thu",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00010",
+      "Value": "",
+      "_description": "Cash - local and foreign currency_Fri",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00011",
+      "Value": "",
+      "_description": "Cash - local and foreign currency_Sat",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00012",
+      "Value": "",
+      "_description": "Cash - local and foreign currency_Sun",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00013",
+      "Value": "",
+      "_description": "Cash - local and foreign currency_Mon",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00014",
+      "Value": "",
+      "_description": "Cash - local and foreign currency_Tue",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00015",
+      "Value": "",
+      "_description": "Cash - local and foreign currency_Wed",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00016",
+      "Value": "",
+      "_description": "Cash - local and foreign currency_Weekly Average",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00017",
+      "Value": "",
+      "_description": "Deposits with NBE_Thu",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00018",
+      "Value": "",
+      "_description": "Deposits with NBE_Fri",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00019",
+      "Value": "",
+      "_description": "Deposits with NBE_Sat",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00020",
+      "Value": "",
+      "_description": "Deposits with NBE_Sun",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00021",
+      "Value": "",
+      "_description": "Deposits with NBE_Mon",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00022",
+      "Value": "",
+      "_description": "Deposits with NBE_Tue",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00023",
+      "Value": "",
+      "_description": "Deposits with NBE_Wed",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00024",
+      "Value": "",
+      "_description": "Deposits with NBE_Weekly Average",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00025",
+      "Value": "",
+      "_description": "Deposits with other local & foreign banks_Thu",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00026",
+      "Value": "",
+      "_description": "Deposits with other local & foreign banks_Fri",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00027",
+      "Value": "",
+      "_description": "Deposits with other local & foreign banks_Sat",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00028",
+      "Value": "",
+      "_description": "Deposits with other local & foreign banks_Sun",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00029",
+      "Value": "",
+      "_description": "Deposits with other local & foreign banks_Mon",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00030",
+      "Value": "",
+      "_description": "Deposits with other local & foreign banks_Tue",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00031",
+      "Value": "",
+      "_description": "Deposits with other local & foreign banks_Wed",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00032",
+      "Value": "",
+      "_description": "Deposits with other local & foreign banks_Weekly Average",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00033",
+      "Value": "",
+      "_description": "Treasury bills_Thu",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00034",
+      "Value": "",
+      "_description": "Treasury bills_Fri",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00035",
+      "Value": "",
+      "_description": "Treasury bills_Sat",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00036",
+      "Value": "",
+      "_description": "Treasury bills_Sun",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00037",
+      "Value": "",
+      "_description": "Treasury bills_Mon",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00038",
+      "Value": "",
+      "_description": "Treasury bills_Tue",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00039",
+      "Value": "",
+      "_description": "Treasury bills_Wed",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00040",
+      "Value": "",
+      "_description": "Treasury bills_Weekly Average",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00041",
+      "Value": "",
+      "_description": "Net due from Domestic banks*_Thu",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00042",
+      "Value": "",
+      "_description": "Net due from Domestic banks*_Fri",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00043",
+      "Value": "",
+      "_description": "Net due from Domestic banks*_Sat",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00044",
+      "Value": "",
+      "_description": "Net due from Domestic banks*_Sun",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00045",
+      "Value": "",
+      "_description": "Net due from Domestic banks*_Mon",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00046",
+      "Value": "",
+      "_description": "Net due from Domestic banks*_Tue",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00047",
+      "Value": "",
+      "_description": "Net due from Domestic banks*_Wed",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00048",
+      "Value": "",
+      "_description": "Net due from Domestic banks*_Weekly Average",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00049",
+      "Value": "",
+      "_description": "Net due from Foreign banks*_Thu",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00050",
+      "Value": "",
+      "_description": "Net due from Foreign banks*_Fri",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00051",
+      "Value": "",
+      "_description": "Net due from Foreign banks*_Sat",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00052",
+      "Value": "",
+      "_description": "Net due from Foreign banks*_Sun",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00053",
+      "Value": "",
+      "_description": "Net due from Foreign banks*_Mon",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00054",
+      "Value": "",
+      "_description": "Net due from Foreign banks*_Tue",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00055",
+      "Value": "",
+      "_description": "Net due from Foreign banks*_Wed",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00056",
+      "Value": "",
+      "_description": "Net due from Foreign banks*_Weekly Average",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00057",
+      "Value": "",
+      "_description": "Total liquid assets (=sum 2.1 to 2.4 less 2.5 & 2.6)_Thu",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00058",
+      "Value": "",
+      "_description": "Total liquid assets (=sum 2.1 to 2.4 less 2.5 & 2.6)_Fri",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00059",
+      "Value": "",
+      "_description": "Total liquid assets (=sum 2.1 to 2.4 less 2.5 & 2.6)_Sat",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00060",
+      "Value": "",
+      "_description": "Total liquid assets (=sum 2.1 to 2.4 less 2.5 & 2.6)_Sun",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00061",
+      "Value": "",
+      "_description": "Total liquid assets (=sum 2.1 to 2.4 less 2.5 & 2.6)_Mon",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00062",
+      "Value": "",
+      "_description": "Total liquid assets (=sum 2.1 to 2.4 less 2.5 & 2.6)_Tue",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00063",
+      "Value": "",
+      "_description": "Total liquid assets (=sum 2.1 to 2.4 less 2.5 & 2.6)_Wed",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00064",
+      "Value": "",
+      "_description": "Total liquid assets (=sum 2.1 to 2.4 less 2.5 & 2.6)_Weekly Average",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00065",
+      "Value": "",
+      "_description": "Excess/deficit (2.7-1.2)_Thu",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00066",
+      "Value": "",
+      "_description": "Excess/deficit (2.7-1.2)_Fri",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00067",
+      "Value": "",
+      "_description": "Excess/deficit (2.7-1.2)_Sat",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00068",
+      "Value": "",
+      "_description": "Excess/deficit (2.7-1.2)_Sun",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00069",
+      "Value": "",
+      "_description": "Excess/deficit (2.7-1.2)_Mon",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00070",
+      "Value": "",
+      "_description": "Excess/deficit (2.7-1.2)_Tue",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00071",
+      "Value": "",
+      "_description": "Excess/deficit (2.7-1.2)_Wed",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "109_00072",
+      "Value": "",
+      "_description": "Excess/deficit (2.7-1.2)_Weekly Average",
+      "_dataType": "NUMERIC",
+      "_required": false
+    }
+  ],
+  "DynamicItemsList": []
+  }
 }

@@ -1,7 +1,6 @@
 import { executeOracleQuery } from '../config/db.js';
 import logger from '../config/logger.js';
 
-// List of currencies the report expects
 const CURRENCIES = ['USD', 'EUR', 'CHF', 'GBP', 'JPY', 'DJF', 'KES', 'INR', 'DKK', 'SEK', 'SAR', 'CAD', 'AED', 'AUD', 'CNY', 'NOK', 'KWD', 'Others'];
 
 export async function fetchCbsData(startDate, endDate) {
@@ -16,30 +15,54 @@ export async function fetchCbsData(startDate, endDate) {
   const oracleDate = formatOracleDate(reportDate);
   logger.info(`Fetching CBS data for date: ${oracleDate}`);
 
-  // --- Run all independent queries in parallel ---
   const startTime = Date.now();
 
-  const [balanceResult, forwardSales, letterOfCredit, rates] = await Promise.all([
-    // 1. Main balance sheet query (returns amounts already divided by rate)
-    executeOracleQuery(getBalanceQuery(), { reportDate: oracleDate }),
-    // 2. Forward sales (hardcoded for now)
-    fetchForwardSales(oracleDate),
-    // 3. Letter of credit (hardcoded)
-    fetchLetterOfCredit(oracleDate),
-    // 4. Mid‑exchange rates
+  // Run both queries in parallel
+  const [balanceResult, forwardAndLCResult] = await Promise.all([
+    executeOracleQuery(getBalanceSheetQuery(), { reportDate: oracleDate }),
+    executeOracleQuery(getForwardSaleAndLetterOfCreditQuery(), { reportDate: oracleDate }),
+  ]);
+
+  // Fetch exchange rates (also in parallel, but we need rates for the balance sheet query)
+  // Actually we can run rates in parallel with the above two.
+  // Let's restructure to run all three in parallel:
+  // But we need rates for balance sheet only; we already have them in the balance sheet query? Actually the balance sheet query already joins rates, so we don't need a separate rates query.
+  // However we also need mid-exchange rates for the report (for Birr conversion). So we still need to fetch rates separately.
+  // Let's adjust: run balance sheet and forward/LC in parallel, then fetch rates separately.
+  // But for efficiency, we can fetch rates in parallel as well.
+  // The rates are needed for the report, not for the balance sheet query.
+  // So we'll run all three in parallel.
+  
+  // Actually the balance sheet query already includes rates internally, so we don't need to pass rates to it.
+  // The balance sheet query returns all values already divided by rate.
+  // We just need rates for the rawData midExchangeRates.
+  // So we can fetch rates separately.
+
+  // Let's run all three in parallel:
+  const [balanceResult2, forwardAndLCResult2, rates2] = await Promise.all([
+    executeOracleQuery(getBalanceSheetQuery(), { reportDate: oracleDate }),
+    executeOracleQuery(getForwardSaleAndLetterOfCreditQuery(), { reportDate: oracleDate }),
     fetchExchangeRates(oracleDate),
   ]);
 
   const elapsed = Date.now() - startTime;
   logger.info(`All CBS queries completed in ${elapsed}ms`);
 
-  const rawBalances = balanceResult.rows?.[0] || {};
+  const rawBalances = balanceResult2.rows?.[0] || {};
+  const forwardAndLC = forwardAndLCResult2.rows?.[0] || {};
 
   // Divide all amounts by 1000 to convert to thousands
   const balances = {};
   for (const key of Object.keys(rawBalances)) {
     balances[key] = parseFloat(rawBalances[key]) / 1000 || 0;
   }
+  // Also for forward/LC
+  const forwardLC = {};
+  for (const key of Object.keys(forwardAndLC)) {
+    forwardLC[key] = parseFloat(forwardAndLC[key]) / 1000 || 0;
+  }
+
+  const rates = rates2;
 
   // Build rawData
   const rawData = {
@@ -68,7 +91,7 @@ export async function fetchCbsData(startDate, endDate) {
     tier1Capital: 0,
   };
 
-  // Map on‑balance sheet items
+  // Map on‑balance sheet items from balance sheet query
   rawData.currencyOnHand['USD'] = balances.CASH_ON_HAND_USD || 0;
   rawData.currencyOnHand['EUR'] = balances.CASH_ON_HAND_EUR || 0;
   rawData.currencyOnHand['GBP'] = balances.CASH_ON_HAND_GBP || 0;
@@ -80,7 +103,6 @@ export async function fetchCbsData(startDate, endDate) {
 
   rawData.chequesInTransit['USD'] = balances.UNCLEARED_EFFECTS || 0;
 
-  // Foreign Currency Deposits = Retention + Diaspora (+ Cash Collateral only for USD)
   const retentionUSD = balances.RETENTION_USD || 0;
   const retentionGBP = balances.RETENTION_GBP || 0;
   const retentionEUR = balances.RETENTION_EUR || 0;
@@ -93,15 +115,12 @@ export async function fetchCbsData(startDate, endDate) {
   rawData.foreignCurrencyDeposits['GBP'] = retentionGBP + diasporaGBP;
   rawData.foreignCurrencyDeposits['EUR'] = retentionEUR + diasporaEUR;
 
-  // Other Liabilities – cash collateral is now in deposits
   rawData.otherLiabilities['USD'] = 0;
-
-  // Tier 1 Capital (LCY) – also in thousands
   rawData.tier1Capital = (balances.PAID_UP_CAPITAL || 0) + (balances.LEGAL_RESERVE || 0);
 
-  // Off‑balance sheet items
-  rawData.forwardSales['USD'] = forwardSales;
-  rawData.letterOfCredit['USD'] = letterOfCredit;
+  // Map Forward Sale and Letter of Credit from the new query
+  rawData.forwardSales['USD'] = forwardLC.FORWARD_SALE || 0;
+  rawData.letterOfCredit['USD'] = forwardLC.LETTER_OF_CREDIT || 0;
 
   logger.info('CBS data assembled successfully.');
   return rawData;
@@ -115,7 +134,8 @@ function formatOracleDate(date) {
   return `${day}-${month}-${year}`;
 }
 
-function getBalanceQuery() {
+// ---------- Original balance_sheet query (unchanged) ----------
+function getBalanceSheetQuery() {
   return `
     WITH latest_balance_date AS (
       SELECT MAX(as_on_date) AS as_on_date
@@ -229,18 +249,25 @@ function getBalanceQuery() {
   `;
 }
 
-// These are now separate functions but will be called in parallel
-async function fetchForwardSales(oracleDate) {
-  // Replace with actual query when available
-  // logger.warn('fetchForwardSales: using hardcoded value 5609.91');
-  return 5609.91;
+// ---------- New query for Forward Sale and Letter of Credit ----------
+function getForwardSaleAndLetterOfCreditQuery() {
+  return `
+    WITH latest_balance_date AS (
+      SELECT MAX(val_dt) AS val_dt
+      FROM FCUBSLIVE.actb_vd_bal
+      WHERE val_dt <= TO_DATE(:reportDate, 'DD-MON-YYYY')
+    )
+    SELECT
+      -- Forward Sale (accounts 6010142, 6010143, 6010144)
+      COALESCE(SUM(CASE WHEN b.acc IN ('6010142','6010143','6010144') THEN b.bal*-1 END), 0) AS FORWARD_SALE,
+      -- Letter of Credit (account 6010145)
+      COALESCE(SUM(CASE WHEN b.acc = '6010145' THEN b.bal*-1 END), 0) AS LETTER_OF_CREDIT
+    FROM FCUBSLIVE.actb_vd_bal b
+    JOIN latest_balance_date lbd ON b.val_dt = lbd.val_dt
+  `;
 }
 
-async function fetchLetterOfCredit(oracleDate) {
-  // logger.warn('fetchLetterOfCredit: using hardcoded value 41.33');
-  return 41.33;
-}
-
+// ---------- Fetch exchange rates for mid rates (only USD, EUR, GBP, CHF) ----------
 async function fetchExchangeRates(oracleDate) {
   const query = `
     WITH latest_rates AS (
@@ -251,7 +278,7 @@ async function fetchExchangeRates(oracleDate) {
       FROM FCUBSLIVE.CYTB_RATES_HISTORY
       WHERE rate_type = 'STANDARD'
         AND branch_code = '002'
-        AND ccy1 IN ('USD','GBP','EUR','JPY','CHF','DJF','KES','INR','DKK','SEK','SAR','CAD','AED','AUD','CNY','NOK','KWD')
+        AND ccy1 IN ('USD','GBP','EUR','CHF')
         AND rate_date <= TO_DATE(:reportDate, 'DD-MON-YYYY')
     )
     SELECT ccy1, mid_rate FROM latest_rates WHERE rn = 1
@@ -263,10 +290,5 @@ async function fetchExchangeRates(oracleDate) {
       rateMap[row.CCY1] = parseFloat(row.MID_RATE);
     }
   }
-  const allCurrencies = ['USD','GBP','EUR','JPY','CHF','DJF','KES','INR','DKK','SEK','SAR','CAD','AED','AUD','CNY','NOK','KWD'];
-  for (const curr of allCurrencies) {
-    if (!rateMap[curr]) rateMap[curr] = 1;
-  }
-  rateMap['Others'] = 1;
   return rateMap;
 }

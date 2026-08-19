@@ -1,4 +1,6 @@
-// SINGLE_CURRENCYOP001.js – complete, corrected configuration
+// SINGLE_CURRENCYOP001.js – complete, corrected configuration with dataFetcher
+
+import { fetchCbsData } from '../../services/cbsService.js';
 
 const CURRENCIES = [
   'USD', 'EUR', 'CHF', 'GBP', 'JPY', 'DJF', 'KES', 'INR',
@@ -355,12 +357,20 @@ const generateFields = () => {
     }
   });
 
+  // Sort fields by code for consistent order
+  fields.sort((a, b) => {
+    const numA = parseInt(a.code.split('_')[1], 10);
+    const numB = parseInt(b.code.split('_')[1], 10);
+    return numA - numB;
+  });
+
   return fields;
 };
 
 export default {
-  reportKey: 'SINGLE CURRENCYOP001',
+  reportKey: 'SINGLE_CURRENCYOP001',
   instCode: process.env.BSA_INST_CODE,
   finYear: new Date().getFullYear(),
+  dataFetcher: fetchCbsData,  // <-- Added to work with new processor
   fields: generateFields(),
 };
