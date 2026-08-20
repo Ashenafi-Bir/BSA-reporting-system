@@ -41,6 +41,11 @@ function parseDateParam(dateParam) {
 export async function triggerReport(req, res) {
   try {
     const { reportKey } = req.params;
+    // Check permission
+    const { allowedReports, role } = req.user;
+    if (role !== 'Admin' && role !== 'ITMaker' && (!allowedReports || !allowedReports.includes(reportKey))) {
+      return res.status(403).json({ success: false, error: 'You do not have access to this report' });
+    }
     const { startDate, endDate } = parseDateParam(req.query.date);
     logger.info(`Triggering ${reportKey} from ${startDate.toISOString()} to ${endDate.toISOString()}`);
     const result = await processReport(reportKey, startDate, endDate);
@@ -54,6 +59,10 @@ export async function triggerReport(req, res) {
 export async function previewReport(req, res) {
   try {
     const { reportKey } = req.params;
+    const { allowedReports, role } = req.user;
+    if (role !== 'Admin' && role !== 'ITMaker' && (!allowedReports || !allowedReports.includes(reportKey))) {
+      return res.status(403).json({ success: false, error: 'You do not have access to this report' });
+    }
     const { startDate, endDate } = parseDateParam(req.query.date);
     logger.info(`Previewing ${reportKey} from ${startDate.toISOString()} to ${endDate.toISOString()}`);
     const payload = await buildReportPayload(reportKey, startDate, endDate);

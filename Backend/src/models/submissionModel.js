@@ -91,3 +91,21 @@ export async function getSubmissionByFilename(filename) {
     .query(query);
   return result.recordset[0] || null;
 }
+export async function getSubmissionsByReportKeys(reportKeys, limit = 50, offset = 0) {
+  if (!reportKeys || reportKeys.length === 0) return [];
+  const pool = getPmsPool();
+  const placeholders = reportKeys.map((_, i) => `@key${i}`).join(',');
+  const query = `
+    SELECT * FROM submissions
+    WHERE report_key IN (${placeholders})
+    ORDER BY submitted_at DESC
+    OFFSET @offset ROWS
+    FETCH NEXT @limit ROWS ONLY
+  `;
+  const request = pool.request();
+  reportKeys.forEach((key, i) => request.input(`key${i}`, key));
+  request.input('offset', offset);
+  request.input('limit', limit);
+  const result = await request.query(query);
+  return result.recordset || [];
+}

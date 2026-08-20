@@ -1,21 +1,23 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { triggerReport, previewReport } from '../services/api';
 import dictionaryData from '../data/dictionary.json';
+import {  type report } from '../types/index';
+
+interface SubmitPanelProps {
+  reports: Report[];
+  role: string;
+  allowedReports: string[];
+}
 
 type SortField = 'code' | 'value';
 type SortDirection = 'asc' | 'desc';
 
-const REPORTS = [
-  { key: 'SINGLE_CURRENCYOP001', name: 'Single Currency OP001', isWeekly: false },
-  { key: 'LSR-Statutory ZS001', name: 'Liquidity Requirement Report', isWeekly: true },
-];
-
-const SubmitPanel: React.FC = () => {
+const SubmitPanel: React.FC<SubmitPanelProps> = ({ reports, role, allowedReports }) => {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [payloadPreview, setPayloadPreview] = useState<any>(null);
-  const [selectedReport, setSelectedReport] = useState<string>(REPORTS[0].key);
+  const [selectedReport, setSelectedReport] = useState<string>(reports[0]?.key || '');
   const [selectedDate, setSelectedDate] = useState<string>(
     new Date().toISOString().slice(0, 10)
   );
@@ -29,10 +31,10 @@ const SubmitPanel: React.FC = () => {
   const [sortField, setSortField] = useState<SortField>('code');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
 
-  const currentReport = REPORTS.find(r => r.key === selectedReport);
+  const currentReport = reports.find(r => r.key === selectedReport);
   const isWeekly = currentReport?.isWeekly || false;
 
-  // Auto-populate weekly date range when report changes to liquidity
+  // Auto-populate weekly date range
   const setWeeklyRange = () => {
     const today = new Date();
     const day = today.getDay();
@@ -51,7 +53,7 @@ const SubmitPanel: React.FC = () => {
     }
   }, [isWeekly]);
 
-  // Build description map from dictionary
+  // Build description map
   const dictionaryForReport = (dictionaryData as any)[selectedReport] || { ReturnItemsList: [] };
   const descriptionMap: Record<string, string> = {};
   (dictionaryForReport.ReturnItemsList || []).forEach((item: any) => {
@@ -75,7 +77,6 @@ const SubmitPanel: React.FC = () => {
       } else {
         dateParam = selectedDate;
       }
-      console.log('📤 Triggering with dateParam:', dateParam);
       const res = await triggerReport(selectedReport, dateParam);
       setResult(res);
     } catch (err: any) {
@@ -98,7 +99,6 @@ const SubmitPanel: React.FC = () => {
       } else {
         dateParam = selectedDate;
       }
-      console.log('📤 Previewing with dateParam:', dateParam);
       const data = await previewReport(selectedReport, dateParam);
       setPayloadPreview(data);
     } catch (err: any) {
@@ -166,28 +166,26 @@ const SubmitPanel: React.FC = () => {
 
   const totalFields = payloadPreview?.ReturnItemsList?.length || 0;
 
-  const reportDisplayName = currentReport?.name || selectedReport;
+  if (!reports.length) {
+    return <div className="card">No reports available for your role.</div>;
+  }
 
   return (
     <div className="submit-panel">
-      <header className="report-header">
-        <h1>{reportDisplayName}</h1>
-        <div className="report-selector">
-          <label htmlFor="reportSelect">Report:</label>
-          <select
-            id="reportSelect"
-            value={selectedReport}
-            onChange={(e) => setSelectedReport(e.target.value)}
-          >
-            {REPORTS.map(report => (
-              <option key={report.key} value={report.key}>{report.name}</option>
-            ))}
-          </select>
-        </div>
-      </header>
-
       <div className="card controls-card">
         <div className="controls">
+          <div className="field">
+            <label htmlFor="reportSelect">Report</label>
+            <select
+              id="reportSelect"
+              value={selectedReport}
+              onChange={(e) => setSelectedReport(e.target.value)}
+            >
+              {reports.map(report => (
+                <option key={report.key} value={report.key}>{report.name}</option>
+              ))}
+            </select>
+          </div>
           {isWeekly ? (
             <>
               <div className="field">
@@ -261,16 +259,14 @@ const SubmitPanel: React.FC = () => {
               Payload Preview – <span>{previewWithDesc.length}</span> / {totalFields} fields
             </h3>
             <div>
-              <button
+              {/* <button
                 className="btn btn-secondary"
                 onClick={() => setShowZeroValues(!showZeroValues)}
-                style={{ marginRight: '0.5rem' }}
               >
                 {showZeroValues ? 'Hide Zero Values' : 'Show Zero Values'}
-              </button>
+              </button> */}
             </div>
           </div>
-
           <div className="table-wrapper">
             <table>
               <thead>
@@ -297,7 +293,7 @@ const SubmitPanel: React.FC = () => {
                 ))}
                 {previewWithDesc.length === 0 && (
                   <tr>
-                    <td colSpan={2} style={{ textAlign: 'center', padding: '2rem', color: '#64748b' }}>
+                    <td colSpan={2} className="empty-state">
                       No fields match the current filters.
                     </td>
                   </tr>
