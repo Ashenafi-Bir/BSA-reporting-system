@@ -37,36 +37,36 @@ export async function fetchLiquidityData(startDate, endDate) {
         b.as_on_date,
         b.product_type,
         b.account_code,
-        b.lcy_amount
+        b.Total_Amount AS amount  -- Use Total_Amount to match the SQL exactly
       FROM latest_balance_for_date lb
       LEFT JOIN FCUBSLIVE.balance_sheet b ON lb.balance_date = b.as_on_date
     )
     SELECT
       report_date AS as_on_date,
       -- Demand Deposit (CURRENT accounts, excluding 3010106)
-      COALESCE(SUM(CASE WHEN b.product_type = 'CURRENT' AND b.account_code <> '3010106' THEN b.lcy_amount END), 0) AS demand_deposit,
+      COALESCE(SUM(CASE WHEN b.product_type = 'CURRENT' AND b.account_code <> '3010106' THEN b.amount END), 0) AS demand_deposit,
       -- Saving Deposit
-      COALESCE(SUM(CASE WHEN b.product_type = 'SAVING' THEN b.lcy_amount END), 0) AS saving_deposit,
+      COALESCE(SUM(CASE WHEN b.product_type = 'SAVING' THEN b.amount END), 0) AS saving_deposit,
       -- Fixed Deposit
-      COALESCE(SUM(CASE WHEN b.product_type = 'FIXED' THEN b.lcy_amount END), 0) AS fixed_deposit,
+      COALESCE(SUM(CASE WHEN b.product_type = 'FIXED' THEN b.amount END), 0) AS fixed_deposit,
       -- Total Deposit
-      COALESCE(SUM(CASE WHEN b.product_type IN ('FIXED','SAVING','CURRENT') AND b.account_code <> '3010106' THEN b.lcy_amount END), 0) AS total_deposit,
+      COALESCE(SUM(CASE WHEN b.product_type IN ('FIXED','SAVING','CURRENT') AND b.account_code <> '3010106' THEN b.amount END), 0) AS total_deposit,
       -- Uncleared effect Foreign
-      COALESCE(SUM(CASE WHEN b.account_code IN ('1040201','1040211') THEN b.lcy_amount END), 0) AS uncleared_effect_foreign,
+      COALESCE(SUM(CASE WHEN b.account_code IN ('1040201','1040211') THEN b.amount END), 0) AS uncleared_effect_foreign,
       -- Reserve a/c wz NBE (1020101)
-      COALESCE(SUM(CASE WHEN b.account_code = '1020101' THEN b.lcy_amount END), 0) AS reserve_ac_wz_nbe,
+      COALESCE(SUM(CASE WHEN b.account_code = '1020101' THEN b.amount END), 0) AS reserve_ac_wz_nbe,
       -- Pyt & Sett (1020102)
-      COALESCE(SUM(CASE WHEN b.account_code = '1020102' THEN b.lcy_amount END), 0) AS pyt_sett,
+      COALESCE(SUM(CASE WHEN b.account_code = '1020102' THEN b.amount END), 0) AS pyt_sett,
       -- Currency Issue a/c (1020103)
-      COALESCE(SUM(CASE WHEN b.account_code = '1020103' THEN b.lcy_amount END), 0) AS currency_issue_ac,
+      COALESCE(SUM(CASE WHEN b.account_code = '1020103' THEN b.amount END), 0) AS currency_issue_ac,
       -- Cash local & foreign currency (10101%, 10102%)
-      COALESCE(SUM(CASE WHEN b.account_code LIKE '10101%' OR b.account_code LIKE '10102%' THEN b.lcy_amount END), 0) AS cash_local_foreign_curr,
+      COALESCE(SUM(CASE WHEN b.account_code LIKE '10101%' OR b.account_code LIKE '10102%' THEN b.amount END), 0) AS cash_local_foreign_curr,
       -- Deposit wz NBE (1020101 + 1020102 + 1020103)
-      COALESCE(SUM(CASE WHEN b.account_code IN ('1020101','1020102','1020103') THEN b.lcy_amount END), 0) AS deposit_wz_nbe,
+      COALESCE(SUM(CASE WHEN b.account_code IN ('1020101','1020102','1020103') THEN b.amount END), 0) AS deposit_wz_nbe,
       -- Deposit wz other local & foreign banks
-      COALESCE(SUM(CASE WHEN b.account_code LIKE '10203%' OR b.account_code LIKE '10204%' OR b.account_code = '1030202' THEN b.lcy_amount END), 0) AS deposit_wz_other_banks,
+      COALESCE(SUM(CASE WHEN b.account_code LIKE '10203%' OR b.account_code LIKE '10204%' OR b.account_code = '1030202' THEN b.amount END), 0) AS deposit_wz_other_banks,
       -- Treasury bill
-      COALESCE(SUM(CASE WHEN b.account_code IN ('1030101','1030107') THEN b.lcy_amount END), 0) AS treasury_bill
+      COALESCE(SUM(CASE WHEN b.account_code IN ('1030101','1030107') THEN b.amount END), 0) AS treasury_bill
     FROM balance_data b
     GROUP BY report_date
     ORDER BY report_date
