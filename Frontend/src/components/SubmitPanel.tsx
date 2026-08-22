@@ -34,9 +34,18 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({ reports, role, allowedReports
   const [sortField, setSortField] = useState<SortField>('code');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
 
+  // Modal state
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [confirmData, setConfirmData] = useState<{
+    reportKey: string;
+    dateParam: string;
+    reportName: string;
+    dateDisplay: string;
+  } | null>(null);
+
   const currentReport = reports.find(r => r.key === selectedReport);
   const isWeekly = currentReport?.isWeekly || false;
-  const isAdmin = role === 'Admin'; // adjust if your admin role has a different string
+  const isAdmin = role === 'Admin';
 
   // Auto-populate weekly date range
   const setWeeklyRange = () => {
@@ -66,17 +75,18 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({ reports, role, allowedReports
     }
   });
 
+  // --- Trigger flow with modal ---
   const handleTrigger = async () => {
-    // 1. Check if user is admin
+    // 1. Check admin
     if (!isAdmin) {
       setError('You do not have permission to run reports. Only administrators can submit reports.');
       setStatusMessage('❌ Permission denied.');
       return;
     }
 
-    // 2. Build date parameter for confirmation message
-    let dateParam;
-    let dateDisplay;
+    // 2. Validate dates and build dateParam / display
+    let dateParam: string;
+    let dateDisplay: string;
     if (isWeekly) {
       if (!startDate || !endDate) {
         setError('Please select both start and end dates.');
@@ -90,21 +100,33 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({ reports, role, allowedReports
       dateDisplay = `on ${selectedDate}`;
     }
 
-    // 3. Show confirmation dialog
     const reportName = currentReport?.name || selectedReport;
-    const confirmMessage = `You are about to submit the report "${reportName}" ${dateDisplay}.\n\nThis action will trigger a background job and cannot be undone.\n\nDo you want to continue?`;
-    if (!window.confirm(confirmMessage)) {
-      setStatusMessage('⏳ Submission cancelled by user.');
-      return;
-    }
 
-    // 4. Proceed with submission
+    // 3. Show custom modal instead of window.confirm
+    setConfirmData({
+      reportKey: selectedReport,
+      dateParam,
+      reportName,
+      dateDisplay,
+    });
+    setShowConfirmModal(true);
+  };
+
+  // Called when user confirms in modal
+  const handleConfirmSubmit = async () => {
+    if (!confirmData) return;
+    const { reportKey, dateParam } = confirmData;
+
+    setShowConfirmModal(false);
+    setConfirmData(null);
+
+    // Proceed with submission
     setSubmitting(true);
     setError(null);
     setStatusMessage('⏳ Submitting report...');
     setResult(null);
     try {
-      const res = await triggerReport(selectedReport, dateParam);
+      const res = await triggerReport(reportKey, dateParam);
       setResult(res);
       setStatusMessage(`✅ Report submitted successfully! Submission ID: ${res.submissionId || 'N/A'}`);
     } catch (err: any) {
@@ -115,6 +137,13 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({ reports, role, allowedReports
     }
   };
 
+  const handleCancelSubmit = () => {
+    setShowConfirmModal(false);
+    setConfirmData(null);
+    setStatusMessage('⏳ Submission cancelled by user.');
+  };
+
+  // --- Preview, Download, Sorting remain unchanged ---
   const handlePreview = async () => {
     setPreviewLoading(true);
     setError(null);
@@ -357,6 +386,30 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({ reports, role, allowedReports
           </div>
           <div className="table-footer">
             Showing {previewWithDesc.length} of {totalFields} fields.
+          </div>
+        </div>
+      )}
+
+      {/* Custom Confirmation Modal */}
+      {showConfirmModal && confirmData && (
+        <div className="modal-overlay" onClick={handleCancelSubmit}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h3>Confirm Report Submission</h3>
+            <p>
+              You are about to submit the report <strong>"{confirmData.reportName}"</strong> {confirmData.dateDisplay}.
+            </p>
+            <p className="modal-warning">
+              This action will trigger a background job and cannot be undone.
+            </p>
+            <p>Do you want to continue?</p>
+            <div className="modal-actions">
+              <button className="btn btn-secondary" onClick={handleCancelSubmit}>
+                Cancel
+              </button>
+              <button className="btn btn-primary" onClick={handleConfirmSubmit}>
+                Confirm
+              </button>
+            </div>
           </div>
         </div>
       )}
