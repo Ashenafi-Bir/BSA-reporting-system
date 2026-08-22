@@ -3,6 +3,34 @@ import { submitReport, getReportStatus } from './bsaService.js';
 import { formatLocalDateTime } from '../utils/dateHelpers.js';
 import * as submissionModel from '../models/submissionModel.js';
 
+// ============================================================
+// RETRY HELPERS
+// ============================================================
+async function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function executeWithRetry(fn, maxRetries = 3, delayMs = 2000) {
+  let lastError;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      logger.warn(`Attempt ${attempt}/${maxRetries} failed: ${error.message}`);
+      if (attempt < maxRetries) {
+        logger.info(`⏳ Retrying in ${delayMs}ms...`);
+        await sleep(delayMs);
+        delayMs *= 1.5; // exponential backoff
+      }
+    }
+  }
+  throw lastError;
+}
+
+// ============================================================
+// BUILD PAYLOAD
+// ============================================================
 export async function buildReportPayload(reportKey, startDate, endDate) {
   const safeReportKey = reportKey.replace(/\s+/g, '_');
   const configModule = await import(`../config/reports/${safeReportKey}.js`);
@@ -45,7 +73,6 @@ export async function buildReportPayload(reportKey, startDate, endDate) {
     fieldMap[field.code] = value;
   }
 
-  // Build ReturnItemsList
   const returnItemsList = [];
   const includeZeroValues = config.includeZeroValues === true;
 
@@ -58,7 +85,6 @@ export async function buildReportPayload(reportKey, startDate, endDate) {
       });
       continue;
     }
-    // Skip zero values
     if (value === 0 || value === '0' || value === undefined || value === null) {
       continue;
     }
@@ -84,56 +110,78 @@ export async function buildReportPayload(reportKey, startDate, endDate) {
   return payload;
 }
 
+// ============================================================
+// PROCESS REPORT (with retry AND failure handling)
+// ============================================================
 export async function processReport(reportKey, startDate, endDate) {
   try {
-    const payload = await buildReportPayload(reportKey, startDate, endDate);
-    logger.info(`📦 Payload built with ${payload.ReturnItemsList.length} items.`);
+    // Wrap the entire process in retry logic
+    const result = await executeWithRetry(async () => {
+      const payload = await buildReportPayload(reportKey, startDate, endDate);
+      logger.info(`📦 Payload built with ${payload.ReturnItemsList.length} items.`);
 
-    const response = await submitReport(payload);
-    logger.info(`✅ Report submitted successfully.`);
+      const response = await submitReport(payload);
+      logger.info(`✅ Report submitted successfully.`);
 
-    const filename = response?.filename || payload.Filename || `${reportKey}_${startDate.toISOString().slice(0,10)}.json`;
+      const filename = response?.filename || payload.Filename || `${reportKey}_${startDate.toISOString().slice(0,10)}.json`;
 
-    const submissionId = await submissionModel.createSubmission({
-      report_key: reportKey,
-      filename: filename,
-      start_date: startDate,
-      end_date: endDate,
-      status: 'submitted',
-      response: JSON.stringify(response),
-    });
+      const submissionId = await submissionModel.createSubmission({
+        report_key: reportKey,
+        filename: filename,
+        start_date: startDate,
+        end_date: endDate,
+        status: 'submitted',
+        response: JSON.stringify(response),
+      });
 
-    setTimeout(async () => {
-      try {
-        logger.info(`⏳ Checking status for submission ${submissionId} (${filename})`);
-        const statusData = await getReportStatus(filename);
-        if (statusData) {
+      // Schedule status check after 1 minute (with retry and error handling)
+      setTimeout(async () => {
+        try {
+          await executeWithRetry(async () => {
+            logger.info(`⏳ Checking status for submission ${submissionId} (${filename})`);
+          const statusData = await getReportStatus(filename);
+if (statusData) {
+  // Normalize BSA status
+  let localStatus = 'processing';
+  const bsaStatus = statusData.status || '';
+  if (bsaStatus === 'Processed' || bsaStatus === 'SUCCESS' || bsaStatus === 'Successful') {
+    localStatus = 'success';
+  } else if (bsaStatus === 'Failed' || bsaStatus === 'ERROR') {
+    localStatus = 'failed';
+  }
+
+  await submissionModel.updateSubmission(submissionId, {
+    bsa_status: bsaStatus,
+    bsa_notification: JSON.stringify(statusData.notification || ''),
+    processing_results: JSON.stringify(statusData.processingResults || []),
+    status_checked_at: new Date(),
+    status: localStatus,
+  });
+  logger.info(`✅ Status updated for submission ${submissionId}: ${bsaStatus} -> ${localStatus}`);
+}else {
+              await submissionModel.updateSubmission(submissionId, {
+                status: 'processing',
+                status_checked_at: new Date(),
+              });
+              logger.warn(`⚠️ Status check returned no data for ${filename}`);
+            }
+          }, 3, 3000); // 3 retries for status check
+        } catch (error) {
+          // Catch any error from the status check retries
+          logger.error(`❌ Status check failed for submission ${submissionId}: ${error.message}`);
           await submissionModel.updateSubmission(submissionId, {
-            bsa_status: statusData.status,
-            bsa_notification: JSON.stringify(statusData.notification || ''),
-            processing_results: JSON.stringify(statusData.processingResults || []),
-            status_checked_at: new Date(),
-            status: statusData.status === 'Processed' ? 'success' : statusData.status === 'Failed' ? 'failed' : 'processing',
+            error: `Status check failed: ${error.message}`,
           });
-          logger.info(`✅ Status updated for submission ${submissionId}: ${statusData.status}`);
-        } else {
-          await submissionModel.updateSubmission(submissionId, {
-            status: 'processing',
-            status_checked_at: new Date(),
-          });
-          logger.warn(`⚠️ Status check returned no data for ${filename}`);
         }
-      } catch (error) {
-        logger.error(`❌ Status check failed for submission ${submissionId}: ${error.message}`);
-        await submissionModel.updateSubmission(submissionId, {
-          error: `Status check failed: ${error.message}`,
-        });
-      }
-    }, 1 * 60 * 1000);
+      }, 1 * 60 * 1000);
 
-    return { ...response, submissionId };
+      return { ...response, submissionId };
+    }, 3, 3000); // 3 retries for the whole process
+
+    return result;
   } catch (error) {
-    logger.error(`❌ Report processing failed: ${error.message}`);
+    // Catch any failure after all retries are exhausted
+    logger.error(`❌ Report processing failed after all retries: ${error.message}`);
     await submissionModel.createSubmission({
       report_key: reportKey,
       status: 'failed',

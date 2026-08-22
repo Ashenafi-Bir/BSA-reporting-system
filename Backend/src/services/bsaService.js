@@ -5,14 +5,40 @@ import logger from '../config/logger.js';
 let accessToken = null;
 let tokenExpiry = null;
 
+// ============================================================
+// RETRY HELPERS
+// ============================================================
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function executeWithRetry(fn, maxRetries = 3, delayMs = 2000) {
+  let lastError;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      logger.warn(`Attempt ${attempt}/${maxRetries} failed: ${error.message}`);
+      if (attempt < maxRetries) {
+        logger.info(`⏳ Retrying in ${delayMs}ms...`);
+        await sleep(delayMs);
+        delayMs *= 1.5;
+      }
+    }
+  }
+  throw lastError;
+}
+
+// ============================================================
+// LOGIN (with retry)
+// ============================================================
 export async function loginToBsa() {
-  try {
+  return await executeWithRetry(async () => {
     const url = bsaConfig.getLoginUrl();
     logger.info(`🔐 Logging into BSA at: ${url}`);
 
-    if (!bsaConfig.baseURL) {
-      throw new Error('BSA_BASE_URL is empty. Check .env file.');
-    }
+    if (!bsaConfig.baseURL) throw new Error('BSA_BASE_URL is empty');
 
     const payload = {
       userUser: bsaConfig.username,
@@ -26,23 +52,13 @@ export async function loginToBsa() {
 
     if (response.status === 200 && response.data.authenticated) {
       accessToken = response.data.accessToken;
-      const expDate = new Date(response.data.expiration);
-      tokenExpiry = expDate;
-      logger.info(`✅ BSA Login successful. Token expires at ${expDate}`);
+      tokenExpiry = new Date(response.data.expiration);
+      logger.info(`✅ BSA Login successful. Token expires at ${tokenExpiry}`);
       return accessToken;
     } else {
-      throw new Error('Login failed: ' + JSON.stringify(response.data));
+      throw new Error(`Login failed: ${JSON.stringify(response.data)}`);
     }
-  } catch (error) {
-    logger.error(`❌ BSA Login error: ${error.message}`);
-    if (error.response) {
-      logger.error(`Response status: ${error.response.status}`);
-      logger.error(`Response data: ${JSON.stringify(error.response.data)}`);
-    } else if (error.request) {
-      logger.error(`No response received. Network error?`);
-    }
-    throw error;
-  }
+  }, 3, 2000);
 }
 
 async function ensureToken() {
@@ -53,8 +69,11 @@ async function ensureToken() {
   return accessToken;
 }
 
+// ============================================================
+// SUBMIT REPORT (with retry)
+// ============================================================
 export async function submitReport(payload) {
-  try {
+  return await executeWithRetry(async () => {
     const token = await ensureToken();
     const url = bsaConfig.getSubmitUrl();
     logger.info(`📤 Submitting report to: ${url}`);
@@ -69,23 +88,14 @@ export async function submitReport(payload) {
 
     logger.info(`✅ Report submitted successfully. Status: ${response.status}`);
     return response.data;
-  } catch (error) {
-    if (error.response) {
-      logger.error(`❌ BSA submission error: ${error.response.status} - ${JSON.stringify(error.response.data)}`);
-    } else if (error.request) {
-      logger.error(`❌ BSA submission error: No response received. ${error.message}`);
-    } else {
-      logger.error(`❌ BSA submission error: ${error.message}`);
-      // In submitReport, after building URL:
-// After getting response, log the full response data
-logger.debug(`BSA response data: ${JSON.stringify(response.data)}`);
-    }
-    throw error;
-  }
+  }, 3, 3000);
 }
 
+// ============================================================
+// GET REPORT STATUS (with retry)
+// ============================================================
 export async function getReportStatus(filename) {
-  try {
+  return await executeWithRetry(async () => {
     const token = await ensureToken();
     const url = `${bsaConfig.baseURL}/api/Status/v${bsaConfig.version}?fileName=${encodeURIComponent(filename)}`;
     logger.info(`📊 Checking status for: ${filename}`);
@@ -105,12 +115,5 @@ export async function getReportStatus(filename) {
       logger.warn(`⚠️ Status check returned ${response.status}`);
       return null;
     }
-  } catch (error) {
-    if (error.response) {
-      logger.error(`❌ Status check error: ${error.response.status} - ${JSON.stringify(error.response.data)}`);
-    } else {
-      logger.error(`❌ Status check error: ${error.message}`);
-    }
-    return null;
-  }
+  }, 3, 3000);
 }

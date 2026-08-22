@@ -36,6 +36,7 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({ reports, role, allowedReports
 
   const currentReport = reports.find(r => r.key === selectedReport);
   const isWeekly = currentReport?.isWeekly || false;
+  const isAdmin = role === 'Admin'; // adjust if your admin role has a different string
 
   // Auto-populate weekly date range
   const setWeeklyRange = () => {
@@ -66,23 +67,43 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({ reports, role, allowedReports
   });
 
   const handleTrigger = async () => {
+    // 1. Check if user is admin
+    if (!isAdmin) {
+      setError('You do not have permission to run reports. Only administrators can submit reports.');
+      setStatusMessage('❌ Permission denied.');
+      return;
+    }
+
+    // 2. Build date parameter for confirmation message
+    let dateParam;
+    let dateDisplay;
+    if (isWeekly) {
+      if (!startDate || !endDate) {
+        setError('Please select both start and end dates.');
+        setStatusMessage('');
+        return;
+      }
+      dateParam = `${startDate}/${endDate}`;
+      dateDisplay = `from ${startDate} to ${endDate}`;
+    } else {
+      dateParam = selectedDate;
+      dateDisplay = `on ${selectedDate}`;
+    }
+
+    // 3. Show confirmation dialog
+    const reportName = currentReport?.name || selectedReport;
+    const confirmMessage = `You are about to submit the report "${reportName}" ${dateDisplay}.\n\nThis action will trigger a background job and cannot be undone.\n\nDo you want to continue?`;
+    if (!window.confirm(confirmMessage)) {
+      setStatusMessage('⏳ Submission cancelled by user.');
+      return;
+    }
+
+    // 4. Proceed with submission
     setSubmitting(true);
     setError(null);
     setStatusMessage('⏳ Submitting report...');
     setResult(null);
     try {
-      let dateParam;
-      if (isWeekly) {
-        if (!startDate || !endDate) {
-          setError('Please select both start and end dates.');
-          setStatusMessage('');
-          setSubmitting(false);
-          return;
-        }
-        dateParam = `${startDate}/${endDate}`;
-      } else {
-        dateParam = selectedDate;
-      }
       const res = await triggerReport(selectedReport, dateParam);
       setResult(res);
       setStatusMessage(`✅ Report submitted successfully! Submission ID: ${res.submissionId || 'N/A'}`);
@@ -247,7 +268,8 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({ reports, role, allowedReports
             <button
               className="btn btn-primary"
               onClick={handleTrigger}
-              disabled={submitting}
+              disabled={submitting || !isAdmin}
+              title={!isAdmin ? 'Only administrators can run reports' : ''}
             >
               {submitting ? 'Submitting...' : 'Run Report'}
             </button>
@@ -291,12 +313,12 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({ reports, role, allowedReports
               Payload Preview – <span>{previewWithDesc.length}</span> / {totalFields} fields
             </h3>
             <div>
-              {/* <button
-                className="btn btn-secondary"
+              <button
+                className="btn btn-sm btn-secondary"
                 onClick={() => setShowZeroValues(!showZeroValues)}
               >
                 {showZeroValues ? 'Hide Zero Values' : 'Show Zero Values'}
-              </button> */}
+              </button>
             </div>
           </div>
           <div className="table-wrapper">
