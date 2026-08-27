@@ -109,3 +109,24 @@ export async function getSubmissionsByReportKeys(reportKeys, limit = 50, offset 
   const result = await request.query(query);
   return result.recordset || [];
 }
+
+/**
+ * Get submissions for a specific report key and exact date range.
+ * Used for daily reports where start_date == end_date.
+ */
+export async function getSubmissionsByReportAndDateRange(reportKey, startDate, endDate) {
+  const pool = getPmsPool();
+  const query = `
+    SELECT * FROM submissions
+    WHERE report_key = @reportKey
+      AND CAST(start_date AS DATE) = CAST(@startDate AS DATE)
+      AND CAST(end_date AS DATE) = CAST(@endDate AS DATE)
+    ORDER BY submitted_at DESC
+  `;
+  const result = await pool.request()
+    .input('reportKey', reportKey)
+    .input('startDate', startDate)
+    .input('endDate', endDate)
+    .query(query);
+  return result.recordset || [];
+}

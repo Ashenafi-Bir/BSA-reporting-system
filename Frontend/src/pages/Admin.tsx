@@ -18,7 +18,13 @@ const Admin: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [selectedRoleId, setSelectedRoleId] = useState<number | null>(null);
   const [roleReports, setRoleReports] = useState<string[]>([]);
-  const [allReportKeys, setAllReportKeys] = useState<string[]>(['SINGLE_CURRENCYOP001', 'LSR-Statutory ZS001']);
+ // In Admin.tsx, find the useState line and update:
+const [allReportKeys, setAllReportKeys] = useState<string[]>([
+  'SINGLE_CURRENCYOP001',
+  'LSR-Statutory ZS001',
+  'CD by S and RegMD001' ,
+  'NBE_20_DEP_MR001'
+]);
   const [searchTerm, setSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);

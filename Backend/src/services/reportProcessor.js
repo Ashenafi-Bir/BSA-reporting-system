@@ -43,7 +43,16 @@ export async function buildReportPayload(reportKey, startDate, endDate) {
   if (typeof config.dataFetcher !== 'function') {
     throw new Error(`Report ${reportKey} does not have a dataFetcher.`);
   }
-  const rawData = await config.dataFetcher(startDate, endDate);
+
+  // ✅ Determine how many arguments the fetcher expects
+  // - If it expects 1 argument, pass only endDate (used by NBE_20_DEP_MR001)
+  // - Otherwise, pass both startDate and endDate
+  let rawData;
+  if (config.dataFetcher.length === 1) {
+    rawData = await config.dataFetcher(endDate);
+  } else {
+    rawData = await config.dataFetcher(startDate, endDate);
+  }
 
   if (typeof config.prepare === 'function') {
     config.prepare(rawData);
@@ -104,7 +113,7 @@ export async function buildReportPayload(reportKey, startDate, endDate) {
     StartDate: formatLocalDateTime(startDate),
     EndDate: formatLocalDateTime(endDate),
     ReturnItemsList: returnItemsList,
-    DynamicItemsList: [],
+    DynamicItemsList: config.dynamicItems || [],
   };
 
   return payload;

@@ -2,11 +2,21 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import SubmitPanel from '../components/SubmitPanel';
-import {  type report } from '../types/index';
 
+
+// Remove the import { Report } and replace with:
+interface Report {
+  key: string;
+  name: string;
+  isWeekly: boolean;
+}
+
+// ✅ Reports array matches the Report interface
 const REPORTS: Report[] = [
   { key: 'SINGLE_CURRENCYOP001', name: 'Single Currency OP001', isWeekly: false },
   { key: 'LSR-Statutory ZS001', name: 'Liquidity Requirement Report', isWeekly: true },
+  { key: 'CD by S and RegMD001', name: 'Deposit by Sector and Region', isWeekly: false },
+  { key: 'NBE_20_DEP_MR001', name: 'Quarterly Top 20 Depositors', isWeekly: false },
 ];
 
 const Dashboard: React.FC = () => {
@@ -22,9 +32,8 @@ const Dashboard: React.FC = () => {
     setUser(JSON.parse(stored));
   }, [navigate]);
 
-  // Filter reports based on user's allowed reports
   const allowedReports = user?.allowedReports || [];
-  const filteredReports = REPORTS.filter(r => 
+  const filteredReports = REPORTS.filter((r) =>
     user?.role === 'Admin' || user?.role === 'ITMaker' || allowedReports.includes(r.key)
   );
 
@@ -38,8 +47,8 @@ const Dashboard: React.FC = () => {
           <h1>Dashboard</h1>
           <p>Welcome, {user.fullName}</p>
         </div>
-        <SubmitPanel 
-          reports={filteredReports} 
+        <SubmitPanel
+          reports={filteredReports}
           role={user.role}
           allowedReports={allowedReports}
         />

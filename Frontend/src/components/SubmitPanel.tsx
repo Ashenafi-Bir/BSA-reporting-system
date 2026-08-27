@@ -12,6 +12,22 @@ interface SubmitPanelProps {
 type SortField = 'code' | 'value';
 type SortDirection = 'asc' | 'desc';
 
+// Define a type for the dictionary items
+interface DictionaryItem {
+  Code: string;
+  Value?: string;
+  _description?: string;
+  _dataType?: string;
+  _required?: boolean;
+}
+
+// Define a type for the payload items (same as dictionary but with Value)
+interface PayloadItem {
+  Code: string;
+  Value: string;
+  description?: string;
+}
+
 const SubmitPanel: React.FC<SubmitPanelProps> = ({ reports, role, allowedReports }) => {
   const [submitting, setSubmitting] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -66,10 +82,10 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({ reports, role, allowedReports
     }
   }, [isWeekly]);
 
-  // Build description map
+  // Build description map with explicit types
   const dictionaryForReport = (dictionaryData as any)[selectedReport] || { ReturnItemsList: [] };
   const descriptionMap: Record<string, string> = {};
-  (dictionaryForReport.ReturnItemsList || []).forEach((item: any) => {
+  (dictionaryForReport.ReturnItemsList || []).forEach((item: DictionaryItem) => {
     if (item.Code && item._description) {
       descriptionMap[item.Code] = item._description;
     }
@@ -77,14 +93,12 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({ reports, role, allowedReports
 
   // --- Trigger flow with modal ---
   const handleTrigger = async () => {
-    // 1. Check admin
     if (!isAdmin) {
       setError('You do not have permission to run reports. Only administrators can submit reports.');
       setStatusMessage('❌ Permission denied.');
       return;
     }
 
-    // 2. Validate dates and build dateParam / display
     let dateParam: string;
     let dateDisplay: string;
     if (isWeekly) {
@@ -102,7 +116,6 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({ reports, role, allowedReports
 
     const reportName = currentReport?.name || selectedReport;
 
-    // 3. Show custom modal instead of window.confirm
     setConfirmData({
       reportKey: selectedReport,
       dateParam,
@@ -112,7 +125,6 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({ reports, role, allowedReports
     setShowConfirmModal(true);
   };
 
-  // Called when user confirms in modal
   const handleConfirmSubmit = async () => {
     if (!confirmData) return;
     const { reportKey, dateParam } = confirmData;
@@ -120,7 +132,6 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({ reports, role, allowedReports
     setShowConfirmModal(false);
     setConfirmData(null);
 
-    // Proceed with submission
     setSubmitting(true);
     setError(null);
     setStatusMessage('⏳ Submitting report...');
@@ -143,7 +154,7 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({ reports, role, allowedReports
     setStatusMessage('⏳ Submission cancelled by user.');
   };
 
-  // --- Preview, Download, Sorting remain unchanged ---
+  // --- Preview, Download, Sorting ---
   const handlePreview = async () => {
     setPreviewLoading(true);
     setError(null);
@@ -201,34 +212,33 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({ reports, role, allowedReports
     }
   };
 
-  const previewWithDesc = useMemo(() => {
+  // ✅ Explicitly typed preview items with corrected sorting
+  const previewWithDesc: PayloadItem[] = useMemo(() => {
     if (!payloadPreview?.ReturnItemsList) return [];
 
-    let items = payloadPreview.ReturnItemsList.map((item: any) => ({
-      ...item,
+    let items: PayloadItem[] = payloadPreview.ReturnItemsList.map((item: any) => ({
+      Code: item.Code,
+      Value: String(item.Value ?? ''),
       description: descriptionMap[item.Code] || 'No description'
     }));
 
     if (!showZeroValues) {
-      items = items.filter(item => item.Value !== '0');
+      items = items.filter((item: PayloadItem) => item.Value !== '0' && item.Value !== '');
     }
 
-    const compare = (a: any, b: any) => {
-      let valA, valB;
-      switch (sortField) {
-        case 'code':
-          valA = a.Code;
-          valB = b.Code;
-          break;
-        case 'value':
-          valA = parseFloat(a.Value);
-          valB = parseFloat(b.Value);
-          if (isNaN(valA)) valA = a.Value;
-          if (isNaN(valB)) valB = b.Value;
-          break;
-        default:
-          valA = a.Code;
-          valB = b.Code;
+    // ✅ Corrected compare function – maps sortField to actual property names
+    const compare = (a: PayloadItem, b: PayloadItem) => {
+      let valA: string | number;
+      let valB: string | number;
+      if (sortField === 'code') {
+        valA = a.Code;
+        valB = b.Code;
+      } else {
+        // value sorting – parse as number if possible
+        const numA = parseFloat(a.Value);
+        const numB = parseFloat(b.Value);
+        valA = isNaN(numA) ? a.Value : numA;
+        valB = isNaN(numB) ? b.Value : numB;
       }
       if (valA < valB) return sortDirection === 'asc' ? -1 : 1;
       if (valA > valB) return sortDirection === 'asc' ? 1 : -1;
@@ -363,7 +373,7 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({ reports, role, allowedReports
                 </tr>
               </thead>
               <tbody>
-                {previewWithDesc.map((item: any, idx: number) => (
+                {previewWithDesc.map((item: PayloadItem, idx: number) => (
                   <tr key={idx}>
                     <td>
                       <span className="code">{item.Code}</span>

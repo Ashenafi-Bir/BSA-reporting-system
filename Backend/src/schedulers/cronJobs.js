@@ -1,3 +1,10 @@
+// scheduler.js
+import cron from 'node-cron';
+import { processReport } from '../services/reportProcessor.js';
+import { isHoliday, getLastWorkingDayBefore } from '../services/cbsService.js';
+import logger from '../config/logger.js';
+import * as submissionModel from '../models/submissionModel.js'; // Added for duplicate check
+
 /**
  * SCHEDULER CONFIGURATION
  * 
@@ -13,11 +20,6 @@
  *   - If today is working → find the most recent non‑holiday date BEFORE today.
  *   - Submit the report for that date.
  */
-
-import cron from 'node-cron';
-import { processReport } from '../services/reportProcessor.js';
-import { isHoliday, getLastWorkingDayBefore } from '../services/cbsService.js';
-import logger from '../config/logger.js';
 
 const ETHIOPIA_TIMEZONE = 'Africa/Addis_Ababa';
 
@@ -53,11 +55,28 @@ export function initSchedulers() {
 
         // 2. Find the most recent non‑holiday date BEFORE today
         const reportDate = await getLastWorkingDayBefore(today);
-        logger.info(`📤 Submitting SINGLE_CURRENCYOP001 for date: ${reportDate.toISOString().slice(0,10)}`);
+        const dateStr = reportDate.toISOString().slice(0,10);
+        logger.info(`📤 Submitting SINGLE_CURRENCYOP001 for date: ${dateStr}`);
+
+        // ---- IDEMPOTENCY CHECK ----
+        // Prevent duplicate submission logs for the same report and date
+        const existing = await submissionModel.getSubmissionsByReportAndDateRange(
+          'SINGLE_CURRENCYOP001',
+          reportDate,
+          reportDate
+        );
+        // If there is already a successful or processing record, skip this run
+        const alreadySubmitted = existing.some(s =>
+          s.status !== 'failed' && s.status !== 'cancelled'
+        );
+        if (alreadySubmitted) {
+          logger.info(`⏭️ Submission for SINGLE_CURRENCYOP001 on ${dateStr} already exists. Skipping duplicate.`);
+          return;
+        }
 
         try {
           await processReport('SINGLE_CURRENCYOP001', reportDate, reportDate);
-          logger.info(`✅ SINGLE_CURRENCYOP001 submitted successfully for ${reportDate.toISOString().slice(0,10)}`);
+          logger.info(`✅ SINGLE_CURRENCYOP001 submitted successfully for ${dateStr}`);
         } catch (error) {
           logger.error(`❌ SINGLE_CURRENCYOP001 cron job failed: ${error.message}`);
         }
@@ -72,12 +91,12 @@ export function initSchedulers() {
 
   // ============================================================
   // 2. WEEKLY REPORT: LSR-Statutory ZS001
-  //    Runs every Friday at 9:30 AM
+  //    Runs every thursday at 9:30 AM
   //    Always sends previous Thu–Wed week (no holiday logic)
   // ============================================================
   if (process.env.SCHEDULE_LSR_Statutory_ZS001 !== 'false') {
     cron.schedule(
-      '30 9 * * 5', // 9:30 AM every Friday (5 = Friday)
+      '30 9 * * 4', // 9:30 AM every thursday (4 = Thursday)
       async () => {
         logger.info('⏰ Cron job triggered: LSR-Statutory ZS001 (weekly)');
 
@@ -92,6 +111,21 @@ export function initSchedulers() {
         const start = new Date(end);
         start.setDate(start.getDate() - 6);
         start.setHours(0, 0, 0, 0);
+
+        // Optional: Add similar duplicate check for weekly if needed, but weekly is less prone to duplicates.
+        // However, we can add it for consistency:
+        const existingWeekly = await submissionModel.getSubmissionsByReportAndDateRange(
+          'LSR-Statutory ZS001',
+          start,
+          end
+        );
+        const alreadySubmittedWeekly = existingWeekly.some(s =>
+          s.status !== 'failed' && s.status !== 'cancelled'
+        );
+        if (alreadySubmittedWeekly) {
+          logger.info(`⏭️ Submission for LSR-Statutory ZS001 for week ${start.toISOString().slice(0,10)} to ${end.toISOString().slice(0,10)} already exists. Skipping duplicate.`);
+          return;
+        }
 
         try {
           logger.info(`📤 Submitting LSR-Statutory ZS001 for week: ${start.toISOString().slice(0,10)} to ${end.toISOString().slice(0,10)}`);
