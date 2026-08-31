@@ -17,6 +17,8 @@ const REPORTS: Report[] = [
   { key: 'LSR-Statutory ZS001', name: 'Liquidity Requirement Report', isWeekly: true },
   { key: 'CD by S and RegMD001', name: 'Deposit by Sector and Region', isWeekly: false },
   { key: 'NBE_20_DEP_MR001', name: 'Quarterly Top 20 Depositors', isWeekly: false },
+  { key: 'CDby Range and RegCM002', name: 'Deposit by Range and Region', isWeekly: false },
+  { key: 'CDby Sector and RegMD002', name: 'Deposit by Sector and Region MD002', isWeekly: false }
 ];
 
 const Dashboard: React.FC = () => {

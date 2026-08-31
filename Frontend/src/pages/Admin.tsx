@@ -23,7 +23,9 @@ const [allReportKeys, setAllReportKeys] = useState<string[]>([
   'SINGLE_CURRENCYOP001',
   'LSR-Statutory ZS001',
   'CD by S and RegMD001' ,
-  'NBE_20_DEP_MR001'
+  'NBE_20_DEP_MR001',
+  'CDby Range and RegCM002',
+  'CDby Sector and RegMD002',
 ]);
   const [searchTerm, setSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);

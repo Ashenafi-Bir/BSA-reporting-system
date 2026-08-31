@@ -95,7 +95,7 @@ const History: React.FC = () => {
                     </td>
                     <td>
                       <Link to={`/submission/${sub.id}`} className="btn btn-sm btn-secondary">Detail</Link>
-                      {/* {sub.filename && (
+                      {sub.filename && (
                         <button
                           onClick={() => handleCheckStatus(sub.id)}
                           disabled={checkingId === sub.id}
@@ -103,7 +103,7 @@ const History: React.FC = () => {
                         >
                           {checkingId === sub.id ? 'Checking...' : 'Check Status'}
                         </button>
-                      )} */}
+                      )}
                     </td>
                   </tr>
                 ))}

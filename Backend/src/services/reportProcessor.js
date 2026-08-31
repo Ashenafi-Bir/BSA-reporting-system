@@ -182,7 +182,7 @@ if (statusData) {
             error: `Status check failed: ${error.message}`,
           });
         }
-      }, 1 * 60 * 1000);
+      }, 3 * 60 * 1000);
 
       return { ...response, submissionId };
     }, 3, 3000); // 3 retries for the whole process

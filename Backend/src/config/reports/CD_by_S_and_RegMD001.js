@@ -1,4 +1,4 @@
-import { fetchDepositBySectorData } from '../../services/depositBySectorService.js';
+import { fetchDepositBySectorData } from '../../services/adepositSectorService.js';
 
 // Ordered list of regions as per the Excel / JSON
 const REGIONS = [
