@@ -187,11 +187,11 @@ const SubmissionDetail: React.FC = () => {
             <button className="btn btn-primary" onClick={handleViewPayload} disabled={payloadLoading}>
               {payloadLoading ? 'Loading...' : 'View Payload'}
             </button>
-            {submission.filename && (
+            {/* {submission.filename && (
               <button className="btn btn-secondary" onClick={() => alert('Check status from history page')}>
                 Check Status
               </button>
-            )}
+            )} */}
           </div>
 
           {showPayload && payload && (

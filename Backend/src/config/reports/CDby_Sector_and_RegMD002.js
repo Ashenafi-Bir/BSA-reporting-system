@@ -62,6 +62,37 @@ export default {
       rural: 'Rural'
     };
 
+    // Helper to get a value and divide amount by 1e6
+    const getValue = (regionData, rowType, sector, metric) => {
+      const rowData = regionData[rowType];
+      if (!rowData) return 0;
+      const sectorData = rowData[sector];
+      if (!sectorData) return 0;
+      let val = sectorData[metric] || 0;
+      if (metric === 'amount') {
+        val = val / 1000000;
+      }
+      return val;
+    };
+
+    // Helper for total across sectors
+    const getTotalAcrossSectors = (regionData, rowType, metric) => {
+      const rowData = regionData[rowType];
+      if (!rowData) return 0;
+      let sum = 0;
+      SECTORS.forEach(sector => {
+        const sectorData = rowData[sector];
+        if (sectorData) {
+          let val = sectorData[metric] || 0;
+          if (metric === 'amount') {
+            val = val / 1000000;
+          }
+          sum += val;
+        }
+      });
+      return sum;
+    };
+
     // ==================== 1. Per‑region fields ====================
     REGIONS.forEach((region, regionIdx) => {
       ROW_TYPES.forEach((rowType, rowIdx) => {
@@ -78,18 +109,13 @@ export default {
               calculation: (fieldMap, rawData) => {
                 const regionData = rawData[region];
                 if (!regionData) return 0;
-                const rowData = regionData[rowType];
-                if (!rowData) return 0;
-                const sectorData = rowData[sector];
-                if (!sectorData) return 0;
-                return sectorData[metric] || 0;
+                return getValue(regionData, rowType, sector, metric);
               }
             });
           });
         });
 
         // ---- b) Total across sectors for this row ----
-        // These are the "Total _Amount", "Total _# of Depositors", "Total _# of Accounts" fields
         METRICS.forEach((metric, metricIdx) => {
           const fieldIdx = SECTORS.length * METRICS.length + metricIdx;
           const code = getCode(regionIdx, rowIdx, fieldIdx);
@@ -101,15 +127,7 @@ export default {
             calculation: (fieldMap, rawData) => {
               const regionData = rawData[region];
               if (!regionData) return 0;
-              const rowData = regionData[rowType];
-              if (!rowData) return 0;
-              // Sum across all sectors
-              let sum = 0;
-              SECTORS.forEach(sector => {
-                const sectorData = rowData[sector];
-                if (sectorData) sum += sectorData[metric] || 0;
-              });
-              return sum;
+              return getTotalAcrossSectors(regionData, rowType, metric);
             }
           });
         });
@@ -138,7 +156,12 @@ export default {
               const totalRow = regionData.total;
               if (!totalRow) return;
               const sectorData = totalRow[sector];
-              if (sectorData) sum += sectorData[metric] || 0;
+              if (!sectorData) return;
+              let val = sectorData[metric] || 0;
+              if (metric === 'amount') {
+                val = val / 1000000;
+              }
+              sum += val;
             });
             return sum;
           }
@@ -165,7 +188,12 @@ export default {
             if (!totalRow) return;
             SECTORS.forEach(sector => {
               const sectorData = totalRow[sector];
-              if (sectorData) sum += sectorData[metric] || 0;
+              if (!sectorData) return;
+              let val = sectorData[metric] || 0;
+              if (metric === 'amount') {
+                val = val / 1000000;
+              }
+              sum += val;
             });
           });
           return sum;

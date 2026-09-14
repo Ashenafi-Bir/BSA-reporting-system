@@ -1,18 +1,19 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { triggerReport, previewReport } from '../services/api';
+import { REPORT_METADATA } from '../constants/reports';
 import dictionaryData from '../data/dictionary.json';
-import { type Report } from '../types/index';
 
 interface SubmitPanelProps {
-  reports: Report[];
+  reports: { key: string; name: string; isWeekly: boolean }[];
   role: string;
   allowedReports: string[];
+  selectedReportKey: string; // from parent
+  onReportSelect: (key: string) => void;
 }
 
 type SortField = 'code' | 'value';
 type SortDirection = 'asc' | 'desc';
 
-// Define a type for the dictionary items
 interface DictionaryItem {
   Code: string;
   Value?: string;
@@ -21,14 +22,19 @@ interface DictionaryItem {
   _required?: boolean;
 }
 
-// Define a type for the payload items (same as dictionary but with Value)
 interface PayloadItem {
   Code: string;
   Value: string;
   description?: string;
 }
 
-const SubmitPanel: React.FC<SubmitPanelProps> = ({ reports, role, allowedReports }) => {
+const SubmitPanel: React.FC<SubmitPanelProps> = ({
+  reports,
+  role,
+  allowedReports,
+  selectedReportKey,
+  onReportSelect,
+}) => {
   const [submitting, setSubmitting] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [downloadLoading, setDownloadLoading] = useState(false);
@@ -36,7 +42,8 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({ reports, role, allowedReports
   const [error, setError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>('');
   const [payloadPreview, setPayloadPreview] = useState<any>(null);
-  const [selectedReport, setSelectedReport] = useState<string>(reports[0]?.key || '');
+
+  // Date states
   const [selectedDate, setSelectedDate] = useState<string>(
     new Date().toISOString().slice(0, 10)
   );
@@ -46,6 +53,7 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({ reports, role, allowedReports
   const [endDate, setEndDate] = useState<string>(
     new Date().toISOString().slice(0, 10)
   );
+
   const [showZeroValues, setShowZeroValues] = useState(true);
   const [sortField, setSortField] = useState<SortField>('code');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
@@ -59,7 +67,7 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({ reports, role, allowedReports
     dateDisplay: string;
   } | null>(null);
 
-  const currentReport = reports.find(r => r.key === selectedReport);
+  const currentReport = reports.find(r => r.key === selectedReportKey);
   const isWeekly = currentReport?.isWeekly || false;
   const isAdmin = role === 'Admin';
 
@@ -82,8 +90,8 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({ reports, role, allowedReports
     }
   }, [isWeekly]);
 
-  // Build description map with explicit types
-  const dictionaryForReport = (dictionaryData as any)[selectedReport] || { ReturnItemsList: [] };
+  // Build description map from dictionary
+  const dictionaryForReport = (dictionaryData as any)[selectedReportKey] || { ReturnItemsList: [] };
   const descriptionMap: Record<string, string> = {};
   (dictionaryForReport.ReturnItemsList || []).forEach((item: DictionaryItem) => {
     if (item.Code && item._description) {
@@ -91,7 +99,7 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({ reports, role, allowedReports
     }
   });
 
-  // --- Trigger flow with modal ---
+  // ---- Trigger with confirmation modal ----
   const handleTrigger = async () => {
     if (!isAdmin) {
       setError('You do not have permission to run reports. Only administrators can submit reports.');
@@ -114,10 +122,10 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({ reports, role, allowedReports
       dateDisplay = `on ${selectedDate}`;
     }
 
-    const reportName = currentReport?.name || selectedReport;
+    const reportName = currentReport?.name || selectedReportKey;
 
     setConfirmData({
-      reportKey: selectedReport,
+      reportKey: selectedReportKey,
       dateParam,
       reportName,
       dateDisplay,
@@ -154,7 +162,7 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({ reports, role, allowedReports
     setStatusMessage('⏳ Submission cancelled by user.');
   };
 
-  // --- Preview, Download, Sorting ---
+  // ---- Preview ----
   const handlePreview = async () => {
     setPreviewLoading(true);
     setError(null);
@@ -173,7 +181,7 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({ reports, role, allowedReports
       } else {
         dateParam = selectedDate;
       }
-      const data = await previewReport(selectedReport, dateParam);
+      const data = await previewReport(selectedReportKey, dateParam);
       setPayloadPreview(data);
       setStatusMessage(`✅ Payload fetched successfully! ${data.ReturnItemsList?.length || 0} fields loaded.`);
     } catch (err: any) {
@@ -184,6 +192,7 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({ reports, role, allowedReports
     }
   };
 
+  // ---- Download ----
   const handleDownload = () => {
     if (!payloadPreview) return;
     setDownloadLoading(true);
@@ -203,6 +212,7 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({ reports, role, allowedReports
     }
   };
 
+  // ---- Sorting ----
   const handleSort = (field: SortField) => {
     if (sortField === field) {
       setSortDirection(prev => (prev === 'asc' ? 'desc' : 'asc'));
@@ -212,7 +222,6 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({ reports, role, allowedReports
     }
   };
 
-  // ✅ Explicitly typed preview items with corrected sorting
   const previewWithDesc: PayloadItem[] = useMemo(() => {
     if (!payloadPreview?.ReturnItemsList) return [];
 
@@ -226,7 +235,6 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({ reports, role, allowedReports
       items = items.filter((item: PayloadItem) => item.Value !== '0' && item.Value !== '');
     }
 
-    // ✅ Corrected compare function – maps sortField to actual property names
     const compare = (a: PayloadItem, b: PayloadItem) => {
       let valA: string | number;
       let valB: string | number;
@@ -234,7 +242,6 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({ reports, role, allowedReports
         valA = a.Code;
         valB = b.Code;
       } else {
-        // value sorting – parse as number if possible
         const numA = parseFloat(a.Value);
         const numB = parseFloat(b.Value);
         valA = isNaN(numA) ? a.Value : numA;
@@ -251,21 +258,26 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({ reports, role, allowedReports
 
   const totalFields = payloadPreview?.ReturnItemsList?.length || 0;
 
+  // --- Render ---
   if (!reports.length) {
     return <div className="card">No reports available for your role.</div>;
   }
 
+  const selectedReportMeta = selectedReportKey ? REPORT_METADATA[selectedReportKey] : null;
+
   return (
     <div className="submit-panel">
+      {/* Report selection row (but we already have the dropdown in the header) – we can hide it or keep it as a fallback */}
       <div className="card controls-card">
         <div className="controls">
           <div className="field">
             <label htmlFor="reportSelect">Report</label>
             <select
               id="reportSelect"
-              value={selectedReport}
-              onChange={(e) => setSelectedReport(e.target.value)}
+              value={selectedReportKey}
+              onChange={(e) => onReportSelect(e.target.value)}
             >
+              <option value="">Select a report</option>
               {reports.map(report => (
                 <option key={report.key} value={report.key}>{report.name}</option>
               ))}
@@ -307,7 +319,7 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({ reports, role, allowedReports
             <button
               className="btn btn-primary"
               onClick={handleTrigger}
-              disabled={submitting || !isAdmin}
+              disabled={submitting || !isAdmin || !selectedReportKey}
               title={!isAdmin ? 'Only administrators can run reports' : ''}
             >
               {submitting ? 'Submitting...' : 'Run Report'}
@@ -315,7 +327,7 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({ reports, role, allowedReports
             <button
               className="btn btn-secondary"
               onClick={handlePreview}
-              disabled={previewLoading}
+              disabled={previewLoading || !selectedReportKey}
             >
               {previewLoading ? 'Loading...' : 'Preview Payload'}
             </button>
@@ -400,7 +412,7 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({ reports, role, allowedReports
         </div>
       )}
 
-      {/* Custom Confirmation Modal */}
+      {/* Confirmation Modal */}
       {showConfirmModal && confirmData && (
         <div className="modal-overlay" onClick={handleCancelSubmit}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>

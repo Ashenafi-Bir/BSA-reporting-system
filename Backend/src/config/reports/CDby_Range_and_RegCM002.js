@@ -60,10 +60,22 @@ export default {
   buildFields(rawData) {
     const fields = [];
 
+    // Helper to get a value and divide amount by 1e6
+    const getValue = (regionData, rowTypeKey, bandKey, metricKey) => {
+      const rowData = regionData[rowTypeKey];
+      if (!rowData) return 0;
+      const bandData = rowData[bandKey];
+      if (!bandData) return 0;
+      let val = bandData[metricKey] || 0;
+      if (metricKey === 'amount') {
+        val = val / 1000000;
+      }
+      return val;
+    };
+
     // 1. Fields per region
     REGIONS.forEach((region, regionIdx) => {
       ROW_TYPES.forEach((rowType, rowIdx) => {
-        // Each row has 12 fields: 3 bands × 3 metrics + 3 totals
         // First 9: bands (3 bands × 3 metrics)
         BANDS.forEach((band, bandIdx) => {
           METRICS.forEach((metric, metricIdx) => {
@@ -77,11 +89,7 @@ export default {
               calculation: (fieldMap, rawData) => {
                 const regionData = rawData[region];
                 if (!regionData) return 0;
-                const rowData = regionData[rowType.key];
-                if (!rowData) return 0;
-                const bandData = rowData[band.key];
-                if (!bandData) return 0;
-                return bandData[metric.key] || 0;
+                return getValue(regionData, rowType.key, band.key, metric.key);
               }
             });
           });
@@ -101,7 +109,11 @@ export default {
               if (!regionData) return 0;
               const rowData = regionData[rowType.key];
               if (!rowData) return 0;
-              return rowData.totals[metric.key] || 0;
+              let val = rowData.totals[metric.key] || 0;
+              if (metric.key === 'amount') {
+                val = val / 1000000;
+              }
+              return val;
             }
           });
         });
@@ -110,8 +122,6 @@ export default {
 
     // 2. Total Deposits row (across all regions)
     const totalStartCode = START_CODE + REGIONS.length * FIELDS_PER_REGION;
-    // Total Deposits has same 12 fields: 3 bands × 3 metrics + 3 totals
-    // We'll compute them by summing across regions
     BANDS.forEach((band, bandIdx) => {
       METRICS.forEach((metric, metricIdx) => {
         const idx = bandIdx * METRICS.length + metricIdx;
@@ -126,12 +136,15 @@ export default {
             REGIONS.forEach(region => {
               const regionData = rawData[region];
               if (!regionData) return;
-              // We sum the total row (which is sum of all products) per band
               const totalRow = regionData.total;
               if (!totalRow) return;
               const bandData = totalRow[band.key];
               if (!bandData) return;
-              sum += bandData[metric.key] || 0;
+              let val = bandData[metric.key] || 0;
+              if (metric.key === 'amount') {
+                val = val / 1000000;
+              }
+              sum += val;
             });
             return sum;
           }
@@ -149,14 +162,17 @@ export default {
         description: desc,
         source: 'calculated',
         calculation: (fieldMap, rawData) => {
-          // Sum across all regions' total row's totals
           let sum = 0;
           REGIONS.forEach(region => {
             const regionData = rawData[region];
             if (!regionData) return;
             const totalRow = regionData.total;
             if (!totalRow) return;
-            sum += totalRow.totals[metric.key] || 0;
+            let val = totalRow.totals[metric.key] || 0;
+            if (metric.key === 'amount') {
+              val = val / 1000000;
+            }
+            sum += val;
           });
           return sum;
         }
