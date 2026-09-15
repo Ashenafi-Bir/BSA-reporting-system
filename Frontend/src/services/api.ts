@@ -7,40 +7,63 @@ const getAuthHeader = () => {
   return { Authorization: `Bearer ${token}` };
 };
 
+/* ============================================================
+ * DATE PARAM CONVENTIONS
+ * ------------------------------------------------------------
+ *  Single-day reports  →  'YYYY-MM-DD'
+ *  Range reports       →  'YYYY-MM-DD/YYYY-MM-DD'
+ *
+ * The backend's parseDateParam() splits on '/' and builds the
+ * correct StartDate / EndDate fields in the BSA payload.
+ * ============================================================ */
+
+/**
+ * Trigger a report submission.
+ * @param reportKey  e.g. 'CDby Range and RegCM002'
+ * @param date       'YYYY-MM-DD' (single) or 'YYYY-MM-DD/YYYY-MM-DD' (range)
+ */
 export const triggerReport = async (reportKey: string, date?: string) => {
   const response = await axios.post(
-    `${API_BASE}/reports/${reportKey}/trigger`,
+    `${API_BASE}/reports/${encodeURIComponent(reportKey)}/trigger`,
     {},
-    { 
+    {
       params: { date },
-      headers: getAuthHeader()
+      headers: getAuthHeader(),
     }
   );
   return response.data;
 };
 
+/**
+ * Preview the report payload without submitting.
+ * @param reportKey  e.g. 'CDby Range and RegCM002'
+ * @param date       'YYYY-MM-DD' (single) or 'YYYY-MM-DD/YYYY-MM-DD' (range)
+ */
 export const previewReport = async (reportKey: string, date?: string) => {
   const response = await axios.get(
-    `${API_BASE}/reports/${reportKey}/preview`,
-    { 
+    `${API_BASE}/reports/${encodeURIComponent(reportKey)}/preview`,
+    {
       params: { date },
-      headers: getAuthHeader()
+      headers: getAuthHeader(),
     }
   );
   return response.data;
 };
 
+/* ============================================================
+ * SUBMISSIONS
+ * ============================================================ */
 export const getSubmissions = async (limit = 50, offset = 0) => {
   const response = await axios.get(`${API_BASE}/submissions`, {
     params: { limit, offset },
-    headers: getAuthHeader()
+    headers: getAuthHeader(),
   });
   return response.data;
 };
 
 export const getSubmission = async (id: number) => {
   const response = await axios.get(`${API_BASE}/submissions/${id}`, {
-    headers: getAuthHeader()
+    headers: getAuthHeader(),
   });
   return response.data;
 };
@@ -54,17 +77,23 @@ export const checkSubmissionStatus = async (id: number) => {
   return response.data;
 };
 
-// Admin APIs
+/* ============================================================
+ * ADMIN
+ * ============================================================ */
 export const getUsers = async () => {
   const response = await axios.get(`${API_BASE}/users`, {
-    headers: getAuthHeader()
+    headers: getAuthHeader(),
   });
   return response.data;
 };
 
-export const createUser = async (data: { username: string; fullName: string; roleId: number }) => {
+export const createUser = async (data: {
+  username: string;
+  fullName: string;
+  roleId: number;
+}) => {
   const response = await axios.post(`${API_BASE}/users`, data, {
-    headers: getAuthHeader()
+    headers: getAuthHeader(),
   });
   return response.data;
 };
@@ -80,21 +109,21 @@ export const updateUserRole = async (userId: number, roleId: number) => {
 
 export const deactivateUser = async (userId: number) => {
   const response = await axios.delete(`${API_BASE}/users/${userId}`, {
-    headers: getAuthHeader()
+    headers: getAuthHeader(),
   });
   return response.data;
 };
 
 export const getRoles = async () => {
   const response = await axios.get(`${API_BASE}/users/roles`, {
-    headers: getAuthHeader()
+    headers: getAuthHeader(),
   });
   return response.data;
 };
 
 export const getRoleReports = async (roleId: number) => {
   const response = await axios.get(`${API_BASE}/users/roles/${roleId}/reports`, {
-    headers: getAuthHeader()
+    headers: getAuthHeader(),
   });
   return response.data;
 };
@@ -106,12 +135,13 @@ export const assignRoleReports = async (roleId: number, reportKeys: string[]) =>
     { headers: getAuthHeader() }
   );
   return response.data;
-};// Add this to api.ts
+};
+
 export const searchLdapUsers = async (searchTerm: string) => {
   const token = localStorage.getItem('token');
   const response = await axios.get(`${API_BASE}/users/ldap/search`, {
     params: { searchTerm },
-    headers: { Authorization: `Bearer ${token}` }
+    headers: { Authorization: `Bearer ${token}` },
   });
   return response.data;
 };

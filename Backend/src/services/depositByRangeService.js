@@ -2,220 +2,231 @@ import { executeOracleQuery } from '../config/db.js';
 import logger from '../config/logger.js';
 
 /**
- * Fetch deposit-by-range data for a given date.
- * Uses the endDate as the reporting date (month-end).
+ * Map raw CBS region names (BRANCH_ADDR3) -> display names used in the JSON.
+ * SNNP is intentionally null (dissolved into SWERS / CERS / SERS).
  */
-export async function fetchDepositByRangeData(startDate, endDate) {
+const REGION_NAME_MAP = {
+  'ADDIS ABABA': 'Addis Ababa',
+  'ADDIS ABEBDA': 'Addis Ababa',
+  'AFAR': 'Afar',
+  'AMHARA': 'Amhara',
+  'BENSHANGUL': 'Benishangul',
+  'BENISHANGUL': 'Benishangul',
+  'BENISHANGUL-GUMUZ': 'Benishangul',
+  'BENISHANGUL GUMUZ': 'Benishangul',
+  'DIRE DAWA': 'Dire Dawa',
+  'DIREDAWA': 'Dire Dawa',
+  'GAMBELLA': 'Gambela',
+  'GAMBELA': 'Gambela',
+  'HARARI': 'Harari',
+  'OROMIA': 'Oromia',
+  'OROMIYA': 'Oromia',
+  'SOMALI': 'Somalia',
+  'SOMALIA': 'Somalia',
+  'TIGRAY': 'Tigray',
+  'TIGRAY REGION': 'Tigray',
+  'SIDAMA': 'Sidama',
+  'SIDAMA REGION': 'Sidama',
+  'SOUTH WEST ETHIOPIA': 'SWERS',
+  'SOUTH WEST ETHIOPIA REGION': 'SWERS',
+  'SOUTHWEST ETHIOPIA': 'SWERS',
+  'CENTRAL ETHIOPIA': 'CERS',
+  'CENTRAL ETHIOPIA REGION': 'CERS',
+  'SOUTHERN ETHIOPIA': 'SERS',
+  'SOUTH ETHIOPIA': 'SERS',
+  'SOUTHERN ETHIOPIA REGION': 'SERS',
+  'SNNP': null,
+  'SOUTHERN NATIONS': null,
+  'SOUTHERN NATIONS NATIONALITIES AND PEOPLES': null,
+};
+
+export const TARGET_REGIONS = [
+  'Addis Ababa', 'Afar', 'Amhara', 'Benishangul', 'Dire Dawa',
+  'Gambela', 'Harari', 'Oromia', 'Somalia', 'Tigray', 'Sidama',
+  'SWERS', 'CERS', 'SERS',
+];
+
+const AMOUNT_DIVISOR = 1_000_000;
+
+/* ---------- Account-code buckets (same codes as MD002) ---------- */
+const DEMAND_CODES = [
+  '101',
+  '115','116','114','103','104','105','108','109','110','111','112','113',
+  '117','118','119','501','502','503','122','123','124','125','126','127',
+  '107',
+  '102',
+  '401','402','403','404','405','406','407','408','409','410','411','412','413',
+];
+
+const SAVING_CODES = [
+  '207','206','211','202','209','203','210','213','241','242',
+  '212','214','216','217','220','225','226','221','222','224',
+  '201','215','219','227','228','208','218','223','205','230',
+  '231','232','233','234','235','236','237','238','239','240',
+  '243','244','245','246','247','248','249','229',
+  '204',
+];
+
+const TIME_CODES = ['302', '303', '305', '301', '304'];
+
+const demandSqlList = DEMAND_CODES.map(c => `'${c}'`).join(',');
+const savingSqlList = SAVING_CODES.map(c => `'${c}'`).join(',');
+const timeSqlList   = TIME_CODES.map(c => `'${c}'`).join(',');
+
+/* ---------- Range definitions ----------
+ * Ranges apply only to POSITIVE balances (> 0). Negative balances
+ * (overdrafts, dormant, contra accounts) are excluded — same pattern
+ * as MD002's "Other" bucket which uses "AND A.LCY_CLOSING_BAL > 0".
+ */
+const RANGES = [
+  { key: 'RANGE1', cond: 'A.LCY_CLOSING_BAL > 0 AND A.LCY_CLOSING_BAL <= 100000' },
+  { key: 'RANGE2', cond: 'A.LCY_CLOSING_BAL > 100000 AND A.LCY_CLOSING_BAL <= 1000000' },
+  { key: 'RANGE3', cond: 'A.LCY_CLOSING_BAL > 1000000' },
+  { key: 'TOTAL',  cond: 'A.LCY_CLOSING_BAL > 0' },
+];
+
+const TYPES = [
+  { key: 'DEMAND', sqlList: demandSqlList },
+  { key: 'SAVING', sqlList: savingSqlList },
+  { key: 'TIME',   sqlList: timeSqlList   },
+];
+
+/* Build 36 SQL aggregate columns (3 types × 4 ranges × 3 metrics) */
+const sqlFields = [];
+for (const type of TYPES) {
+  for (const range of RANGES) {
+    sqlFields.push(
+      `SUM(CASE WHEN A.ACC_CODE IN (${type.sqlList}) AND ${range.cond} THEN A.LCY_CLOSING_BAL END) AS ${type.key}_${range.key}_AMOUNT`
+    );
+    sqlFields.push(
+      `COUNT(DISTINCT CASE WHEN A.ACC_CODE IN (${type.sqlList}) AND ${range.cond} THEN SUBSTR(A.ACCOUNT,4,7) END) AS ${type.key}_${range.key}_DEPOSITORS`
+    );
+    sqlFields.push(
+      `COUNT(CASE WHEN A.ACC_CODE IN (${type.sqlList}) AND ${range.cond} THEN A.ACCOUNT END) AS ${type.key}_${range.key}_ACCOUNTS`
+    );
+  }
+}
+const sqlFieldsBlock = sqlFields.join(',\n      ');
+
+/* ------------------------------------------------------------------ */
+/*  Empty structure                                                    */
+/* ------------------------------------------------------------------ */
+const emptyMetric = () => ({ amount: 0, depositors: 0, accounts: 0 });
+const emptyRanges = () => ({
+  range1: emptyMetric(),
+  range2: emptyMetric(),
+  range3: emptyMetric(),
+  total:  emptyMetric(),
+});
+const emptyAccountType = () => ({
+  demand: emptyRanges(),
+  saving: emptyRanges(),
+  time:   emptyRanges(),
+});
+const emptyLocation = () => ({
+  urban: emptyAccountType(),
+  rural: emptyAccountType(),
+});
+
+/* ------------------------------------------------------------------ */
+function num(v) {
+  if (v === null || v === undefined) return 0;
+  const n = typeof v === 'number' ? v : parseFloat(v);
+  return Number.isFinite(n) ? n : 0;
+}
+const amt = (v) => num(v) / AMOUNT_DIVISOR;
+const cnt = (v) => num(v);
+
+/* ------------------------------------------------------------------ */
+/*  Main fetcher                                                       */
+/* ------------------------------------------------------------------ */
+export async function fetchDepositByRangeAndRegion(startDate, endDate) {
+  if (!startDate || !(startDate instanceof Date) || isNaN(startDate.getTime())) {
+    throw new Error('Invalid startDate provided to fetchDepositByRangeAndRegion');
+  }
   if (!endDate || !(endDate instanceof Date) || isNaN(endDate.getTime())) {
-    throw new Error('Invalid endDate provided to fetchDepositByRangeData');
+    throw new Error('Invalid endDate provided to fetchDepositByRangeAndRegion');
   }
 
-  const todt = formatOracleDate(endDate);
-  logger.info(`Fetching deposit by range data as of ${todt}`);
+  const endDateStr = formatOracleDate(endDate);
+  logger.info(`Fetching Deposit by Range & Region data up to ${endDateStr}`);
 
   const query = `
     WITH eligible_accounts AS (
-      SELECT
-        C.CUST_AC_NO AS ACC,
-        C.ACCOUNT_TYPE
+      SELECT C.CUST_AC_NO AS ACC
       FROM FCUBSLIVE.STTM_CUST_ACCOUNT C
       WHERE C.RECORD_STAT = 'O'
-         OR (C.RECORD_STAT = 'C' AND C.MAKER_DT_STAMP > :todt)
+         OR (C.RECORD_STAT = 'C'
+             AND C.MAKER_DT_STAMP > TO_DATE(:endDate, 'DD-MON-YYYY'))
     ),
-    account_latest_balance AS (
-      SELECT
-        A.BRANCH_CODE,
-        A.ACCOUNT,
-        A.BKG_DATE,
-        A.LCY_CLOSING_BAL,
-        C.ACCOUNT_TYPE,
-        ROW_NUMBER() OVER (PARTITION BY A.ACCOUNT ORDER BY A.BKG_DATE DESC) AS RN
+    latest_dates AS (
+      SELECT A.ACCOUNT, MAX(A.BKG_DATE) AS BKG_DATE
       FROM FCUBSLIVE.ACTB_ACCBAL_HISTORY A
       JOIN eligible_accounts C ON C.ACC = A.ACCOUNT
-      WHERE A.BKG_DATE <= :todt
-        AND LENGTH(A.ACCOUNT) = 16
+      WHERE A.BKG_DATE <= TO_DATE(:endDate, 'DD-MON-YYYY')
+      GROUP BY A.ACCOUNT
     ),
     base_data AS (
       SELECT
         A.BRANCH_CODE,
         A.ACCOUNT,
-        A.BKG_DATE,
         A.LCY_CLOSING_BAL,
-        A.ACCOUNT_TYPE,
-        CASE
-          WHEN A.LCY_CLOSING_BAL <= 100000 THEN 'UPTO_HUN'
-          WHEN A.LCY_CLOSING_BAL <= 1000000 THEN 'UPTO_MIL'
-          ELSE 'ABOVE_MIL'
-        END AS BAL_BAND
-      FROM FCUBSLIVE.account_latest_balance A
-      WHERE A.RN = 1
-        AND A.BRANCH_CODE <> '000'
-        AND A.LCY_CLOSING_BAL > 0
+        SUBSTR(A.ACCOUNT, 11, 3) AS ACC_CODE
+      FROM FCUBSLIVE.ACTB_ACCBAL_HISTORY A
+      JOIN latest_dates L
+        ON L.ACCOUNT = A.ACCOUNT AND L.BKG_DATE = A.BKG_DATE
+      WHERE A.BRANCH_CODE <> '000'
     )
     SELECT
       B.BRANCH_ADDR3 AS BREGION,
-      -- Demand (U)
-      SUM(CASE WHEN A.ACCOUNT_TYPE = 'U' AND A.BAL_BAND = 'UPTO_HUN' THEN A.LCY_CLOSING_BAL ELSE 0 END) AS Demand_upto_Hundred,
-      COUNT(DISTINCT CASE WHEN A.ACCOUNT_TYPE = 'U' AND A.BAL_BAND = 'UPTO_HUN' THEN SUBSTR(A.ACCOUNT,4,7) END) AS Demand_upto_Hundred_Depositor,
-      COUNT(CASE WHEN A.ACCOUNT_TYPE = 'U' AND A.BAL_BAND = 'UPTO_HUN' THEN A.ACCOUNT END) AS Demand_upto_Hundred_Account,
-      SUM(CASE WHEN A.ACCOUNT_TYPE = 'U' AND A.BAL_BAND = 'UPTO_MIL' THEN A.LCY_CLOSING_BAL ELSE 0 END) AS Demand_upto_Million,
-      COUNT(DISTINCT CASE WHEN A.ACCOUNT_TYPE = 'U' AND A.BAL_BAND = 'UPTO_MIL' THEN SUBSTR(A.ACCOUNT,4,7) END) AS Demand_upto_Million_Depositor,
-      COUNT(CASE WHEN A.ACCOUNT_TYPE = 'U' AND A.BAL_BAND = 'UPTO_MIL' THEN A.ACCOUNT END) AS Demand_upto_Million_Account,
-      SUM(CASE WHEN A.ACCOUNT_TYPE = 'U' AND A.BAL_BAND = 'ABOVE_MIL' THEN A.LCY_CLOSING_BAL ELSE 0 END) AS Demand_Above_Million,
-      COUNT(DISTINCT CASE WHEN A.ACCOUNT_TYPE = 'U' AND A.BAL_BAND = 'ABOVE_MIL' THEN SUBSTR(A.ACCOUNT,4,7) END) AS Demand_Above_Million_Depositor,
-      COUNT(CASE WHEN A.ACCOUNT_TYPE = 'U' AND A.BAL_BAND = 'ABOVE_MIL' THEN A.ACCOUNT END) AS Demand_Above_Million_Account,
-      -- Saving (S)
-      SUM(CASE WHEN A.ACCOUNT_TYPE = 'S' AND A.BAL_BAND = 'UPTO_HUN' THEN A.LCY_CLOSING_BAL ELSE 0 END) AS Saving_upto_Hundred,
-      COUNT(DISTINCT CASE WHEN A.ACCOUNT_TYPE = 'S' AND A.BAL_BAND = 'UPTO_HUN' THEN SUBSTR(A.ACCOUNT,4,7) END) AS Saving_upto_Hundred_Depositor,
-      COUNT(CASE WHEN A.ACCOUNT_TYPE = 'S' AND A.BAL_BAND = 'UPTO_HUN' THEN A.ACCOUNT END) AS Saving_upto_Hundred_Account,
-      SUM(CASE WHEN A.ACCOUNT_TYPE = 'S' AND A.BAL_BAND = 'UPTO_MIL' THEN A.LCY_CLOSING_BAL ELSE 0 END) AS Saving_upto_Million,
-      COUNT(DISTINCT CASE WHEN A.ACCOUNT_TYPE = 'S' AND A.BAL_BAND = 'UPTO_MIL' THEN SUBSTR(A.ACCOUNT,4,7) END) AS Saving_upto_Million_Depositor,
-      COUNT(CASE WHEN A.ACCOUNT_TYPE = 'S' AND A.BAL_BAND = 'UPTO_MIL' THEN A.ACCOUNT END) AS Saving_upto_Million_Account,
-      SUM(CASE WHEN A.ACCOUNT_TYPE = 'S' AND A.BAL_BAND = 'ABOVE_MIL' THEN A.LCY_CLOSING_BAL ELSE 0 END) AS Saving_Above_Million,
-      COUNT(DISTINCT CASE WHEN A.ACCOUNT_TYPE = 'S' AND A.BAL_BAND = 'ABOVE_MIL' THEN SUBSTR(A.ACCOUNT,4,7) END) AS Saving_Above_Million_Depositor,
-      COUNT(CASE WHEN A.ACCOUNT_TYPE = 'S' AND A.BAL_BAND = 'ABOVE_MIL' THEN A.ACCOUNT END) AS Saving_Above_Million_Account,
-      -- Time / Term Deposit (Y)
-      SUM(CASE WHEN A.ACCOUNT_TYPE = 'Y' AND A.BAL_BAND = 'UPTO_HUN' THEN A.LCY_CLOSING_BAL ELSE 0 END) AS TD_upto_Hundred,
-      COUNT(DISTINCT CASE WHEN A.ACCOUNT_TYPE = 'Y' AND A.BAL_BAND = 'UPTO_HUN' THEN SUBSTR(A.ACCOUNT,4,7) END) AS TD_upto_Hundred_Depositor,
-      COUNT(CASE WHEN A.ACCOUNT_TYPE = 'Y' AND A.BAL_BAND = 'UPTO_HUN' THEN A.ACCOUNT END) AS TD_upto_Hundred_Account,
-      SUM(CASE WHEN A.ACCOUNT_TYPE = 'Y' AND A.BAL_BAND = 'UPTO_MIL' THEN A.LCY_CLOSING_BAL ELSE 0 END) AS TD_upto_Million,
-      COUNT(DISTINCT CASE WHEN A.ACCOUNT_TYPE = 'Y' AND A.BAL_BAND = 'UPTO_MIL' THEN SUBSTR(A.ACCOUNT,4,7) END) AS TD_upto_Million_Depositor,
-      COUNT(CASE WHEN A.ACCOUNT_TYPE = 'Y' AND A.BAL_BAND = 'UPTO_MIL' THEN A.ACCOUNT END) AS TD_upto_Million_Account,
-      SUM(CASE WHEN A.ACCOUNT_TYPE = 'Y' AND A.BAL_BAND = 'ABOVE_MIL' THEN A.LCY_CLOSING_BAL ELSE 0 END) AS TD_Above_Million,
-      COUNT(DISTINCT CASE WHEN A.ACCOUNT_TYPE = 'Y' AND A.BAL_BAND = 'ABOVE_MIL' THEN SUBSTR(A.ACCOUNT,4,7) END) AS TD_Above_Million_Depositor,
-      COUNT(CASE WHEN A.ACCOUNT_TYPE = 'Y' AND A.BAL_BAND = 'ABOVE_MIL' THEN A.ACCOUNT END) AS TD_Above_Million_Account
-    FROM FCUBSLIVE.base_data A
+      'Urban' AS URBAN_RURAL,
+      ${sqlFieldsBlock}
+    FROM base_data A
     JOIN FCUBSLIVE.STTM_BRANCH B ON B.BRANCH_CODE = A.BRANCH_CODE
     GROUP BY B.BRANCH_ADDR3
     ORDER BY B.BRANCH_ADDR3
   `;
 
-  const result = await executeOracleQuery(query, { todt });
-  const rows = result.rows;
+  const result = await executeOracleQuery(query, { endDate: endDateStr });
 
-  // Map region names from SQL to display names
-  const regionNameMap = {
-    'ADDIS ABABA': 'Addis Ababa',
-    'AFAR': 'Afar',
-    'AMHARA': 'Amhara',
-    'BENSHANGUL': 'Benishangul',
-    'DIRE DAWA': 'Dire Dawa',
-    'GAMBELLA': 'Gambela',
-    'HARARI': 'Harari',
-    'OROMIA': 'Oromia',
-    'SOMALI': 'Somalia',
-    'TIGRAY': 'Tigray',
-    'SIDAMA': 'Sidama',
-    'SOUTH WEST ETHIOPIA': 'SWERS',
-    'CENTRAL ETHIOPIA': 'CERS',
-    'SOUTHERN ETHIOPIA': 'SERS',
-  };
+  const regionData = {};
+  for (const region of TARGET_REGIONS) {
+    regionData[region] = emptyLocation();
+  }
 
-  const allRegions = [
-    'Addis Ababa', 'Afar', 'Amhara', 'Benishangul', 'Dire Dawa',
-    'Gambela', 'Harari', 'Oromia', 'Somalia', 'Tigray',
-    'Sidama', 'SWERS', 'CERS', 'SERS'
-  ];
+  // Straight copy from SQL -> JS structure. No recomputation.
+  for (const row of result.rows) {
+    const rawRegion = String(row.BREGION || '').toUpperCase().trim();
+    const region = REGION_NAME_MAP[rawRegion];
+    if (!region) continue;
 
-  // Initialize rawData with all regions (all zeros)
-  const emptyRow = (type = 'total') => ({
-    upToHundred: { amount: 0, depositors: 0, accounts: 0 },
-    upToMillion: { amount: 0, depositors: 0, accounts: 0 },
-    aboveMillion: { amount: 0, depositors: 0, accounts: 0 },
-    totals: { amount: 0, depositors: 0, accounts: 0 }
-  });
+    const urban = regionData[region].urban;
 
-  const rawData = {};
-  allRegions.forEach(region => {
-    rawData[region] = {
-      total: emptyRow('total'),
-      demand: emptyRow('demand'),
-      saving: emptyRow('saving'),
-      time: emptyRow('time'),
-      urban: emptyRow('urban'),
-      rural: emptyRow('rural')
-    };
-  });
-
-  // Fill with SQL results
-  rows.forEach(row => {
-    const dbRegion = row.BREGION?.trim().toUpperCase() || '';
-    const region = regionNameMap[dbRegion];
-    if (!region || !rawData[region]) {
-      logger.warn(`Unknown region: ${dbRegion}, skipping`);
-      return;
+    for (const type of ['DEMAND', 'SAVING', 'TIME']) {
+      const typeKey = type.toLowerCase();           // demand / saving / time
+      for (const rangeKey of ['RANGE1', 'RANGE2', 'RANGE3', 'TOTAL']) {
+        const prefix = `${type}_${rangeKey}`;
+        const targetKey = rangeKey.toLowerCase();   // range1 / range2 / range3 / total
+        urban[typeKey][targetKey] = {
+          amount:     amt(row[`${prefix}_AMOUNT`]),
+          depositors: cnt(row[`${prefix}_DEPOSITORS`]),
+          accounts:   cnt(row[`${prefix}_ACCOUNTS`]),
+        };
+      }
     }
+  }
 
-    const r = rawData[region];
-
-    // Demand
-    r.demand.upToHundred.amount = row.DEMAND_UPTO_HUNDRED || 0;
-    r.demand.upToHundred.depositors = row.DEMAND_UPTO_HUNDRED_DEPOSITOR || 0;
-    r.demand.upToHundred.accounts = row.DEMAND_UPTO_HUNDRED_ACCOUNT || 0;
-
-    r.demand.upToMillion.amount = row.DEMAND_UPTO_MILLION || 0;
-    r.demand.upToMillion.depositors = row.DEMAND_UPTO_MILLION_DEPOSITOR || 0;
-    r.demand.upToMillion.accounts = row.DEMAND_UPTO_MILLION_ACCOUNT || 0;
-
-    r.demand.aboveMillion.amount = row.DEMAND_ABOVE_MILLION || 0;
-    r.demand.aboveMillion.depositors = row.DEMAND_ABOVE_MILLION_DEPOSITOR || 0;
-    r.demand.aboveMillion.accounts = row.DEMAND_ABOVE_MILLION_ACCOUNT || 0;
-
-    // Saving
-    r.saving.upToHundred.amount = row.SAVING_UPTO_HUNDRED || 0;
-    r.saving.upToHundred.depositors = row.SAVING_UPTO_HUNDRED_DEPOSITOR || 0;
-    r.saving.upToHundred.accounts = row.SAVING_UPTO_HUNDRED_ACCOUNT || 0;
-
-    r.saving.upToMillion.amount = row.SAVING_UPTO_MILLION || 0;
-    r.saving.upToMillion.depositors = row.SAVING_UPTO_MILLION_DEPOSITOR || 0;
-    r.saving.upToMillion.accounts = row.SAVING_UPTO_MILLION_ACCOUNT || 0;
-
-    r.saving.aboveMillion.amount = row.SAVING_ABOVE_MILLION || 0;
-    r.saving.aboveMillion.depositors = row.SAVING_ABOVE_MILLION_DEPOSITOR || 0;
-    r.saving.aboveMillion.accounts = row.SAVING_ABOVE_MILLION_ACCOUNT || 0;
-
-    // Time (TD)
-    r.time.upToHundred.amount = row.TD_UPTO_HUNDRED || 0;
-    r.time.upToHundred.depositors = row.TD_UPTO_HUNDRED_DEPOSITOR || 0;
-    r.time.upToHundred.accounts = row.TD_UPTO_HUNDRED_ACCOUNT || 0;
-
-    r.time.upToMillion.amount = row.TD_UPTO_MILLION || 0;
-    r.time.upToMillion.depositors = row.TD_UPTO_MILLION_DEPOSITOR || 0;
-    r.time.upToMillion.accounts = row.TD_UPTO_MILLION_ACCOUNT || 0;
-
-    r.time.aboveMillion.amount = row.TD_ABOVE_MILLION || 0;
-    r.time.aboveMillion.depositors = row.TD_ABOVE_MILLION_DEPOSITOR || 0;
-    r.time.aboveMillion.accounts = row.TD_ABOVE_MILLION_ACCOUNT || 0;
-
-    // Compute total = demand + saving + time
-    ['upToHundred', 'upToMillion', 'aboveMillion'].forEach(band => {
-      r.total[band].amount = r.demand[band].amount + r.saving[band].amount + r.time[band].amount;
-      r.total[band].depositors = r.demand[band].depositors + r.saving[band].depositors + r.time[band].depositors;
-      r.total[band].accounts = r.demand[band].accounts + r.saving[band].accounts + r.time[band].accounts;
-    });
-
-    // Totals across bands for each product and total
-    ['demand', 'saving', 'time', 'total'].forEach(type => {
-      const obj = r[type];
-      obj.totals.amount = obj.upToHundred.amount + obj.upToMillion.amount + obj.aboveMillion.amount;
-      obj.totals.depositors = obj.upToHundred.depositors + obj.upToMillion.depositors + obj.aboveMillion.depositors;
-      obj.totals.accounts = obj.upToHundred.accounts + obj.upToMillion.accounts + obj.aboveMillion.accounts;
-    });
-
-    // Urban = total (all branches are urban)
-    r.urban = JSON.parse(JSON.stringify(r.total));
-
-    // Rural = all zeros (already)
-  });
-
-  logger.info(`Fetched deposit by range data for ${Object.keys(rawData).length} regions.`);
-  return rawData;
+  logger.info(
+    `Fetched Deposit-by-Range data for ${Object.keys(regionData).length} regions (amounts in Millions of Birr).`
+  );
+  return regionData;
 }
 
+/* ------------------------------------------------------------------ */
 function formatOracleDate(date) {
-  const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
-  const day = String(date.getDate()).padStart(2, '0');
+  const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  const day   = String(date.getDate()).padStart(2, '0');
   const month = months[date.getMonth()];
-  const year = date.getFullYear();
+  const year  = date.getFullYear();
   return `${day}-${month}-${year}`;
 }

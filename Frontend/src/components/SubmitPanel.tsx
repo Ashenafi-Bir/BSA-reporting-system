@@ -28,6 +28,35 @@ interface PayloadItem {
   description?: string;
 }
 
+/* ---------- date helpers ---------- */
+const pad = (n: number) => String(n).padStart(2, '0');
+const toInputDate = (d: Date) =>
+  `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+const todayStr = () => toInputDate(new Date());
+
+const firstOfMonthStr = () => {
+  const d = new Date();
+  return toInputDate(new Date(d.getFullYear(), d.getMonth(), 1));
+};
+
+const lastOfMonthStr = () => {
+  const d = new Date();
+  return toInputDate(new Date(d.getFullYear(), d.getMonth() + 1, 0));
+};
+
+/** Thu → Wed of the current week (for weekly reports). */
+const currentWeekRange = () => {
+  const today = new Date();
+  const day = today.getDay();               // 0=Sun, 4=Thu
+  const daysToThursday = (day - 4 + 7) % 7;
+  const start = new Date(today);
+  start.setDate(today.getDate() - daysToThursday);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  return { start: toInputDate(start), end: toInputDate(end) };
+};
+
 const SubmitPanel: React.FC<SubmitPanelProps> = ({
   reports,
   role,
@@ -44,15 +73,9 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
   const [payloadPreview, setPayloadPreview] = useState<any>(null);
 
   // Date states
-  const [selectedDate, setSelectedDate] = useState<string>(
-    new Date().toISOString().slice(0, 10)
-  );
-  const [startDate, setStartDate] = useState<string>(
-    new Date().toISOString().slice(0, 10)
-  );
-  const [endDate, setEndDate] = useState<string>(
-    new Date().toISOString().slice(0, 10)
-  );
+  const [selectedDate, setSelectedDate] = useState<string>(todayStr());
+  const [startDate, setStartDate] = useState<string>(firstOfMonthStr());
+  const [endDate, setEndDate] = useState<string>(lastOfMonthStr());
 
   const [showZeroValues, setShowZeroValues] = useState(true);
   const [sortField, setSortField] = useState<SortField>('code');
@@ -71,64 +94,71 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
   const isWeekly = currentReport?.isWeekly || false;
   const isAdmin = role === 'Admin';
 
-  // Auto-populate weekly date range
-  const setWeeklyRange = () => {
-    const today = new Date();
-    const day = today.getDay();
-    let daysToThursday = (day - 4 + 7) % 7;
-    const start = new Date(today);
-    start.setDate(today.getDate() - daysToThursday);
-    const end = new Date(start);
-    end.setDate(start.getDate() + 6);
-    setStartDate(start.toISOString().slice(0, 10));
-    setEndDate(end.toISOString().slice(0, 10));
+  const selectedReportMeta = selectedReportKey
+    ? REPORT_METADATA[selectedReportKey]
+    : null;
+
+  /** 'single' → one date; 'range' → start + end. Default 'range'. */
+  const dateMode: 'single' | 'range' = selectedReportMeta?.dateMode ?? 'range';
+
+  /* ------------------------------------------------------------------ */
+  /*  Auto-populate sensible defaults whenever the report changes        */
+  /* ------------------------------------------------------------------ */
+  useEffect(() => {
+    if (!selectedReportMeta) return;
+
+    if (selectedReportMeta.dateMode === 'single') {
+      setSelectedDate(todayStr());
+    } else if (isWeekly) {
+      const { start, end } = currentWeekRange();
+      setStartDate(start);
+      setEndDate(end);
+    } else {
+      // Monthly / Quarterly → default to current month
+      setStartDate(firstOfMonthStr());
+      setEndDate(lastOfMonthStr());
+    }
+    // Clear stale preview/result so nothing looks out of date
+    setPayloadPreview(null);
+    setResult(null);
+    setStatusMessage('');
+    setError(null);
+  }, [selectedReportKey, selectedReportMeta, isWeekly]);
+
+  /* ------------------------------------------------------------------ */
+  /*  Build the date param the backend understands                       */
+  /* ------------------------------------------------------------------ */
+  const buildDateParam = (): { dateParam: string; dateDisplay: string } | null => {
+    if (dateMode === 'single') {
+      if (!selectedDate) return null;
+      return { dateParam: selectedDate, dateDisplay: `on ${selectedDate}` };
+    }
+    if (!startDate || !endDate) return null;
+    if (startDate > endDate) return null;
+    return {
+      dateParam: `${startDate}/${endDate}`,
+      dateDisplay: `from ${startDate} to ${endDate}`,
+    };
   };
 
-  useEffect(() => {
-    if (isWeekly) {
-      setWeeklyRange();
-    }
-  }, [isWeekly]);
-
-  // Build description map from dictionary
-  const dictionaryForReport = (dictionaryData as any)[selectedReportKey] || { ReturnItemsList: [] };
-  const descriptionMap: Record<string, string> = {};
-  (dictionaryForReport.ReturnItemsList || []).forEach((item: DictionaryItem) => {
-    if (item.Code && item._description) {
-      descriptionMap[item.Code] = item._description;
-    }
-  });
-
-  // ---- Trigger with confirmation modal ----
+  /* ---------- Trigger with confirmation modal ---------- */
   const handleTrigger = async () => {
     if (!isAdmin) {
       setError('You do not have permission to run reports. Only administrators can submit reports.');
       setStatusMessage('❌ Permission denied.');
       return;
     }
-
-    let dateParam: string;
-    let dateDisplay: string;
-    if (isWeekly) {
-      if (!startDate || !endDate) {
-        setError('Please select both start and end dates.');
-        setStatusMessage('');
-        return;
-      }
-      dateParam = `${startDate}/${endDate}`;
-      dateDisplay = `from ${startDate} to ${endDate}`;
-    } else {
-      dateParam = selectedDate;
-      dateDisplay = `on ${selectedDate}`;
+    const dateInfo = buildDateParam();
+    if (!dateInfo) {
+      setError('Please select valid date(s).');
+      setStatusMessage('');
+      return;
     }
-
-    const reportName = currentReport?.name || selectedReportKey;
-
     setConfirmData({
       reportKey: selectedReportKey,
-      dateParam,
-      reportName,
-      dateDisplay,
+      dateParam: dateInfo.dateParam,
+      reportName: currentReport?.name || selectedReportKey,
+      dateDisplay: dateInfo.dateDisplay,
     });
     setShowConfirmModal(true);
   };
@@ -136,10 +166,8 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
   const handleConfirmSubmit = async () => {
     if (!confirmData) return;
     const { reportKey, dateParam } = confirmData;
-
     setShowConfirmModal(false);
     setConfirmData(null);
-
     setSubmitting(true);
     setError(null);
     setStatusMessage('⏳ Submitting report...');
@@ -162,28 +190,24 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
     setStatusMessage('⏳ Submission cancelled by user.');
   };
 
-  // ---- Preview ----
+  /* ---------- Preview ---------- */
   const handlePreview = async () => {
+    const dateInfo = buildDateParam();
+    if (!dateInfo) {
+      setError('Please select valid date(s).');
+      setStatusMessage('');
+      return;
+    }
     setPreviewLoading(true);
     setError(null);
     setStatusMessage('⏳ Fetching payload preview...');
     setPayloadPreview(null);
     try {
-      let dateParam;
-      if (isWeekly) {
-        if (!startDate || !endDate) {
-          setError('Please select both start and end dates.');
-          setStatusMessage('');
-          setPreviewLoading(false);
-          return;
-        }
-        dateParam = `${startDate}/${endDate}`;
-      } else {
-        dateParam = selectedDate;
-      }
-      const data = await previewReport(selectedReportKey, dateParam);
+      const data = await previewReport(selectedReportKey, dateInfo.dateParam);
       setPayloadPreview(data);
-      setStatusMessage(`✅ Payload fetched successfully! ${data.ReturnItemsList?.length || 0} fields loaded.`);
+      setStatusMessage(
+        `✅ Payload fetched successfully! ${data.ReturnItemsList?.length || 0} fields loaded.`
+      );
     } catch (err: any) {
       setError(err.response?.data?.error || err.message);
       setStatusMessage(`❌ Preview failed: ${err.response?.data?.error || err.message}`);
@@ -192,16 +216,21 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
     }
   };
 
-  // ---- Download ----
+  /* ---------- Download ---------- */
   const handleDownload = () => {
     if (!payloadPreview) return;
     setDownloadLoading(true);
     try {
-      const blob = new Blob([JSON.stringify(payloadPreview, null, 2)], { type: 'application/json' });
+      const blob = new Blob(
+        [JSON.stringify(payloadPreview, null, 2)],
+        { type: 'application/json' }
+      );
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `payload_${isWeekly ? `${startDate}_to_${endDate}` : selectedDate}.json`;
+      const suffix =
+        dateMode === 'range' ? `${startDate}_to_${endDate}` : selectedDate;
+      a.download = `payload_${suffix}.json`;
       a.click();
       URL.revokeObjectURL(url);
       setStatusMessage('✅ JSON downloaded successfully!');
@@ -212,7 +241,7 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
     }
   };
 
-  // ---- Sorting ----
+  /* ---------- Sorting ---------- */
   const handleSort = (field: SortField) => {
     if (sortField === field) {
       setSortDirection(prev => (prev === 'asc' ? 'desc' : 'asc'));
@@ -222,17 +251,29 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
     }
   };
 
+  /* ---------- Dictionary lookup ---------- */
+  const dictionaryForReport =
+    (dictionaryData as any)[selectedReportKey] || { ReturnItemsList: [] };
+  const descriptionMap: Record<string, string> = {};
+  (dictionaryForReport.ReturnItemsList || []).forEach((item: DictionaryItem) => {
+    if (item.Code && item._description) {
+      descriptionMap[item.Code] = item._description;
+    }
+  });
+
   const previewWithDesc: PayloadItem[] = useMemo(() => {
     if (!payloadPreview?.ReturnItemsList) return [];
 
     let items: PayloadItem[] = payloadPreview.ReturnItemsList.map((item: any) => ({
       Code: item.Code,
       Value: String(item.Value ?? ''),
-      description: descriptionMap[item.Code] || 'No description'
+      description: descriptionMap[item.Code] || 'No description',
     }));
 
     if (!showZeroValues) {
-      items = items.filter((item: PayloadItem) => item.Value !== '0' && item.Value !== '');
+      items = items.filter(
+        (item: PayloadItem) => item.Value !== '0' && item.Value !== ''
+      );
     }
 
     const compare = (a: PayloadItem, b: PayloadItem) => {
@@ -258,16 +299,16 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
 
   const totalFields = payloadPreview?.ReturnItemsList?.length || 0;
 
-  // --- Render ---
+  /* ---------- Render guard ---------- */
   if (!reports.length) {
     return <div className="card">No reports available for your role.</div>;
   }
 
-  const selectedReportMeta = selectedReportKey ? REPORT_METADATA[selectedReportKey] : null;
+  const rangeInvalid =
+    dateMode === 'range' && startDate && endDate && startDate > endDate;
 
   return (
     <div className="submit-panel">
-      {/* Report selection row (but we already have the dropdown in the header) – we can hide it or keep it as a fallback */}
       <div className="card controls-card">
         <div className="controls">
           <div className="field">
@@ -283,7 +324,20 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
               ))}
             </select>
           </div>
-          {isWeekly ? (
+
+          {dateMode === 'single' ? (
+            /* ---------- Single day ---------- */
+            <div className="field">
+              <label htmlFor="reportDate">Report Date</label>
+              <input
+                id="reportDate"
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+              />
+            </div>
+          ) : (
+            /* ---------- Date range ---------- */
             <>
               <div className="field">
                 <label htmlFor="startDate">Start Date</label>
@@ -304,22 +358,15 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
                 />
               </div>
             </>
-          ) : (
-            <div className="field">
-              <label htmlFor="reportDate">Report Date</label>
-              <input
-                id="reportDate"
-                type="date"
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-              />
-            </div>
           )}
+
           <div className="actions">
             <button
               className="btn btn-primary"
               onClick={handleTrigger}
-              disabled={submitting || !isAdmin || !selectedReportKey}
+              disabled={
+                submitting || !isAdmin || !selectedReportKey || rangeInvalid
+              }
               title={!isAdmin ? 'Only administrators can run reports' : ''}
             >
               {submitting ? 'Submitting...' : 'Run Report'}
@@ -327,7 +374,7 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
             <button
               className="btn btn-secondary"
               onClick={handlePreview}
-              disabled={previewLoading || !selectedReportKey}
+              disabled={previewLoading || !selectedReportKey || rangeInvalid}
             >
               {previewLoading ? 'Loading...' : 'Preview Payload'}
             </button>
@@ -342,8 +389,21 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
             )}
           </div>
         </div>
+
+        {rangeInvalid && (
+          <div className="error">Start date must be before or equal to end date.</div>
+        )}
+
         {statusMessage && (
-          <div className={`status-message ${statusMessage.startsWith('✅') ? 'success' : statusMessage.startsWith('❌') ? 'error' : 'info'}`}>
+          <div
+            className={`status-message ${
+              statusMessage.startsWith('✅')
+                ? 'success'
+                : statusMessage.startsWith('❌')
+                ? 'error'
+                : 'info'
+            }`}
+          >
             {statusMessage}
           </div>
         )}
@@ -377,10 +437,12 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
               <thead>
                 <tr>
                   <th onClick={() => handleSort('code')} style={{ cursor: 'pointer' }}>
-                    Code &amp; Description {sortField === 'code' && (sortDirection === 'asc' ? '▲' : '▼')}
+                    Code &amp; Description{' '}
+                    {sortField === 'code' && (sortDirection === 'asc' ? '▲' : '▼')}
                   </th>
                   <th onClick={() => handleSort('value')} style={{ cursor: 'pointer' }}>
-                    Value {sortField === 'value' && (sortDirection === 'asc' ? '▲' : '▼')}
+                    Value{' '}
+                    {sortField === 'value' && (sortDirection === 'asc' ? '▲' : '▼')}
                   </th>
                 </tr>
               </thead>
@@ -418,7 +480,8 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <h3>Confirm Report Submission</h3>
             <p>
-              You are about to submit the report <strong>"{confirmData.reportName}"</strong> {confirmData.dateDisplay}.
+              You are about to submit the report{' '}
+              <strong>"{confirmData.reportName}"</strong> {confirmData.dateDisplay}.
             </p>
             <p className="modal-warning">
               This action will trigger a background job and cannot be undone.

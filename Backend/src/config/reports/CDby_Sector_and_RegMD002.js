@@ -1,37 +1,101 @@
-import { fetchDepositBySectorData } from '../../services/depositBySectorService.js';
+import {
+  fetchDepositBySectorAndRegion,
+  TARGET_REGIONS,
+} from '../../services/depositBySectorService.js';
 
-const REGIONS = [
-  'Addis Ababa', 'Afar', 'Amhara', 'Benishangul', 'Dire Dawa',
-  'Gambela', 'Harari', 'Oromia', 'Somalia', 'Tigray',
-  'Sidama', 'SWERS', 'CERS', 'SERS'
+/* ------------------------------------------------------------------ */
+/*  Code-layout constants (derived from the JSON dictionary)          */
+/* ------------------------------------------------------------------ */
+const BASE_CODE           = 47252;   // first code of Addis Ababa
+const CODES_PER_REGION    = 108;     // 6 blocks × 18 fields
+const TOTAL_DEPOSITS_BASE = 48764;   // "Total Deposits" block
+
+/* Each block has 6 categories × 3 metrics = 18 codes */
+const CATEGORIES = ['pubEnt', 'private', 'gov', 'bank', 'other'];   // 5 real ones
+const CATEGORY_LABELS = {
+  pubEnt:  'Pub.  Enterprise',   // note double space (matches JSON)
+  private: 'Private & Coop.',
+  gov:     'Regional Gov.',
+  bank:    'Banks',
+  other:   'Others',
+  total:   'Total ',              // note trailing space (matches JSON)
+};
+
+const METRICS = ['amount', 'depositors', 'accounts'];
+const METRIC_LABELS = {
+  amount:     'Amount',
+  depositors: '# of Depositors ',   // trailing space
+  accounts:   '# of Accounts ',     // trailing space
+};
+
+/* Block order inside each region (matches JSON order) */
+const BLOCKS = [
+  { key: 'main',   prefix: '',       offset: 0  },
+  { key: 'demand', prefix: 'Demand_', offset: 18 },
+  { key: 'saving', prefix: 'Saving_', offset: 36 },
+  { key: 'time',   prefix: 'Time_',   offset: 54 },
+  { key: 'urban',  prefix: 'Urban_',  offset: 72 },
+  { key: 'rural',  prefix: 'Rural_',  offset: 90 },
 ];
 
-// Sectors in order (as they appear in JSON)
-const SECTORS = ['public', 'private', 'gov', 'banks', 'others'];
-// Metrics
-const METRICS = ['amount', 'depositors', 'accounts'];
-// Row types (order as in JSON)
-const ROW_TYPES = ['total', 'demand', 'saving', 'time', 'urban', 'rural'];
+/* ------------------------------------------------------------------ */
+/*  Value calculation                                                  */
+/* ------------------------------------------------------------------ */
+function computeSectorValue(regionData, blockKey, category, metric) {
+  if (!regionData) return 0;
 
-// Starting code for first region's first row (total) first sector (public) first metric (amount)
-const START_CODE = 47252;
+  // Urban / Rural blocks: only that location, sum across account types
+  if (blockKey === 'urban' || blockKey === 'rural') {
+    const loc = regionData[blockKey];
+    if (!loc) return 0;
+    let total = 0;
+    for (const sub of ['demand', 'saving', 'time']) {
+      const sector = loc[sub] && loc[sub][category];
+      if (sector) total += sector[metric] || 0;
+    }
+    return total;
+  }
 
-// Fields per region: 6 rows × (5 sectors × 3 metrics + 3 total-across-sectors) = 6 × 18 = 108
-const FIELDS_PER_REGION = ROW_TYPES.length * (SECTORS.length * METRICS.length + METRICS.length);
+  // Demand / Saving / Time blocks: sum urban + rural
+  if (blockKey === 'demand' || blockKey === 'saving' || blockKey === 'time') {
+    let total = 0;
+    for (const loc of ['urban', 'rural']) {
+      const locData = regionData[loc];
+      if (!locData) continue;
+      const sector = locData[blockKey] && locData[blockKey][category];
+      if (sector) total += sector[metric] || 0;
+    }
+    return total;
+  }
 
-function getCode(regionIdx, rowIdx, fieldIdxInRow) {
-  const offset = regionIdx * FIELDS_PER_REGION + rowIdx * (SECTORS.length * METRICS.length + METRICS.length) + fieldIdxInRow;
-  const codeNum = START_CODE + offset;
-  return `MD002_${String(codeNum).padStart(5, '0')}`;
+  // Main block: sum Demand + Saving + Time across both locations
+  if (blockKey === 'main') {
+    let total = 0;
+    for (const loc of ['urban', 'rural']) {
+      const locData = regionData[loc];
+      if (!locData) continue;
+      for (const sub of ['demand', 'saving', 'time']) {
+        const sector = locData[sub] && locData[sub][category];
+        if (sector) total += sector[metric] || 0;
+      }
+    }
+    return total;
+  }
+
+  return 0;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Config export                                                      */
+/* ------------------------------------------------------------------ */
 export default {
   reportKey: 'CDby Sector and RegMD002',
-  instCode: process.env.BSA_INST_CODE,
-  finYear: new Date().getFullYear(),
-  includeZeroValues: false,
+  instCode:  process.env.BSA_INST_CODE,
+  finYear:   new Date().getFullYear(),
+  dataFetcher: fetchDepositBySectorAndRegion,
 
-  dataFetcher: fetchDepositBySectorData,
+  // The template expects every code (many of them legitimately zero)
+  includeZeroValues: true,
 
   prepare(rawData) {
     this.fields = this.buildFields(rawData);
@@ -41,166 +105,96 @@ export default {
   buildFields(rawData) {
     const fields = [];
 
-    const sectorLabels = {
-      public: 'Pub.  Enterprise',
-      private: 'Private & Coop.',
-      gov: 'Regional Gov.',
-      banks: 'Banks',
-      others: 'Others'
-    };
-    const metricLabels = {
-      amount: 'Amount',
-      depositors: '# of Depositors',
-      accounts: '# of Accounts'
-    };
-    const rowLabels = {
-      total: '',
-      demand: 'Demand',
-      saving: 'Saving',
-      time: 'Time',
-      urban: 'Urban',
-      rural: 'Rural'
-    };
+    /* ---------- Per-region blocks ---------- */
+    TARGET_REGIONS.forEach((region, regionIdx) => {
+      const regionBase = BASE_CODE + regionIdx * CODES_PER_REGION;
+      const regionData = rawData[region];
 
-    // Helper to get a value and divide amount by 1e6
-    const getValue = (regionData, rowType, sector, metric) => {
-      const rowData = regionData[rowType];
-      if (!rowData) return 0;
-      const sectorData = rowData[sector];
-      if (!sectorData) return 0;
-      let val = sectorData[metric] || 0;
-      if (metric === 'amount') {
-        val = val / 1000000;
-      }
-      return val;
-    };
-
-    // Helper for total across sectors
-    const getTotalAcrossSectors = (regionData, rowType, metric) => {
-      const rowData = regionData[rowType];
-      if (!rowData) return 0;
-      let sum = 0;
-      SECTORS.forEach(sector => {
-        const sectorData = rowData[sector];
-        if (sectorData) {
-          let val = sectorData[metric] || 0;
-          if (metric === 'amount') {
-            val = val / 1000000;
-          }
-          sum += val;
-        }
-      });
-      return sum;
-    };
-
-    // ==================== 1. Per‑region fields ====================
-    REGIONS.forEach((region, regionIdx) => {
-      ROW_TYPES.forEach((rowType, rowIdx) => {
-        // ---- a) Fields for each sector ----
-        SECTORS.forEach((sector, sectorIdx) => {
+      BLOCKS.forEach(block => {
+        // 5 real sector categories
+        CATEGORIES.forEach((cat, catIdx) => {
           METRICS.forEach((metric, metricIdx) => {
-            const fieldIdx = sectorIdx * METRICS.length + metricIdx;
-            const code = getCode(regionIdx, rowIdx, fieldIdx);
-            const desc = `${region}${rowLabels[rowType] ? '_' + rowLabels[rowType] : ''}_${sectorLabels[sector]}_${metricLabels[metric]}`;
+            const code = `MD002_${regionBase + block.offset + catIdx * 3 + metricIdx}`;
+            const description = block.prefix
+              ? `${region}_${block.prefix}${CATEGORY_LABELS[cat]}_${METRIC_LABELS[metric]}`
+              : `${region}_${CATEGORY_LABELS[cat]}_${METRIC_LABELS[metric]}`;
+
             fields.push({
               code,
-              description: desc,
+              description,
               source: 'calculated',
-              calculation: (fieldMap, rawData) => {
-                const regionData = rawData[region];
-                if (!regionData) return 0;
-                return getValue(regionData, rowType, sector, metric);
-              }
+              calculation: () => computeSectorValue(regionData, block.key, cat, metric),
             });
           });
         });
 
-        // ---- b) Total across sectors for this row ----
+        // "Total" category = sum of the 5 sectors (reads from fieldMap)
         METRICS.forEach((metric, metricIdx) => {
-          const fieldIdx = SECTORS.length * METRICS.length + metricIdx;
-          const code = getCode(regionIdx, rowIdx, fieldIdx);
-          const desc = `${region}${rowLabels[rowType] ? '_' + rowLabels[rowType] : ''}_Total_${metricLabels[metric]}`;
+          const code = `MD002_${regionBase + block.offset + 5 * 3 + metricIdx}`;
+          const description = block.prefix
+            ? `${region}_${block.prefix}${CATEGORY_LABELS.total}_${METRIC_LABELS[metric]}`
+            : `${region}_${CATEGORY_LABELS.total}_${METRIC_LABELS[metric]}`;
+
           fields.push({
             code,
-            description: desc,
+            description,
             source: 'calculated',
-            calculation: (fieldMap, rawData) => {
-              const regionData = rawData[region];
-              if (!regionData) return 0;
-              return getTotalAcrossSectors(regionData, rowType, metric);
-            }
+            calculation: (fieldMap) => {
+              let sum = 0;
+              for (let i = 0; i < CATEGORIES.length; i++) {
+                const c = `MD002_${regionBase + block.offset + i * 3 + metricIdx}`;
+                sum += parseFloat(fieldMap[c] || 0);
+              }
+              return sum;
+            },
           });
         });
       });
     });
 
-    // ==================== 2. Total Deposits (across all regions) ====================
-    const totalStart = START_CODE + REGIONS.length * FIELDS_PER_REGION; // 48764
-
-    // ---- a) By sector ----
-    SECTORS.forEach((sector, sectorIdx) => {
+    /* ---------- Bottom "Total Deposits" block ---------- */
+    CATEGORIES.forEach((cat, catIdx) => {
       METRICS.forEach((metric, metricIdx) => {
-        const codeNum = totalStart + sectorIdx * METRICS.length + metricIdx;
-        const code = `MD002_${String(codeNum).padStart(5, '0')}`;
-        const desc = `Total Deposits_${sectorLabels[sector]}_${metricLabels[metric]}`;
+        const code = `MD002_${TOTAL_DEPOSITS_BASE + catIdx * 3 + metricIdx}`;
+        const description = `Total Deposits_${CATEGORY_LABELS[cat]}_${METRIC_LABELS[metric]}`;
+
         fields.push({
           code,
-          description: desc,
+          description,
           source: 'calculated',
-          calculation: (fieldMap, rawData) => {
+          calculation: (fieldMap) => {
             let sum = 0;
-            REGIONS.forEach(region => {
-              const regionData = rawData[region];
-              if (!regionData) return;
-              // Use the "total" row (sum of demand+saving+time)
-              const totalRow = regionData.total;
-              if (!totalRow) return;
-              const sectorData = totalRow[sector];
-              if (!sectorData) return;
-              let val = sectorData[metric] || 0;
-              if (metric === 'amount') {
-                val = val / 1000000;
-              }
-              sum += val;
+            TARGET_REGIONS.forEach((_, regionIdx) => {
+              const regionBase = BASE_CODE + regionIdx * CODES_PER_REGION;
+              const mainCode = `MD002_${regionBase + catIdx * 3 + metricIdx}`;
+              sum += parseFloat(fieldMap[mainCode] || 0);
             });
             return sum;
-          }
+          },
         });
       });
     });
 
-    // ---- b) Grand total across sectors ----
-    const grandTotalStart = totalStart + SECTORS.length * METRICS.length;
+    // Total Deposits - Total column (sum of the 5 categories)
     METRICS.forEach((metric, metricIdx) => {
-      const codeNum = grandTotalStart + metricIdx;
-      const code = `MD002_${String(codeNum).padStart(5, '0')}`;
-      const desc = `Total Deposits_Total_${metricLabels[metric]}`;
+      const code = `MD002_${TOTAL_DEPOSITS_BASE + 5 * 3 + metricIdx}`;
+      const description = `Total Deposits_${CATEGORY_LABELS.total}_${METRIC_LABELS[metric]}`;
+
       fields.push({
         code,
-        description: desc,
+        description,
         source: 'calculated',
-        calculation: (fieldMap, rawData) => {
+        calculation: (fieldMap) => {
           let sum = 0;
-          REGIONS.forEach(region => {
-            const regionData = rawData[region];
-            if (!regionData) return;
-            const totalRow = regionData.total;
-            if (!totalRow) return;
-            SECTORS.forEach(sector => {
-              const sectorData = totalRow[sector];
-              if (!sectorData) return;
-              let val = sectorData[metric] || 0;
-              if (metric === 'amount') {
-                val = val / 1000000;
-              }
-              sum += val;
-            });
-          });
+          for (let catIdx = 0; catIdx < CATEGORIES.length; catIdx++) {
+            const c = `MD002_${TOTAL_DEPOSITS_BASE + catIdx * 3 + metricIdx}`;
+            sum += parseFloat(fieldMap[c] || 0);
+          }
           return sum;
-        }
+        },
       });
     });
 
     return fields;
-  }
+  },
 };
