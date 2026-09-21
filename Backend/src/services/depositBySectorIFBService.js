@@ -59,22 +59,18 @@ const emptySector = () => ({
   other:   emptyMetric(),
 });
 
-/**
- * SQL only splits TD (Time Deposit) — no separate "restricted" vs
- * "unrestricted" columns exist. We therefore:
- *   - store SQL's TD_* values under `restricted`
- *   - leave `unrestricted` at 0
- *   - `time` block in the config is computed as Restricted + Unrestricted
- *     (matching the Excel formula =C20+C21)
- */
-const emptyLocation = () => ({
+const emptyAccountType = () => ({
   demand:       emptySector(),
   saving:       emptySector(),
-  restricted:   emptySector(),   // <- populated from TD_* SQL columns
-  unrestricted: emptySector(),   // <- always 0
+  restricted:   emptySector(),
+  unrestricted: emptySector(),
 });
 
-/* ------------------------------------------------------------------ */
+const emptyLocation = () => ({
+  urban: emptyAccountType(),
+  rural: emptyAccountType(),
+});
+
 function num(v) {
   if (v === null || v === undefined) return 0;
   const n = typeof v === 'number' ? v : parseFloat(v);
@@ -98,100 +94,106 @@ export async function fetchDepositBySectorIFB(startDate, endDate) {
   logger.info(`Fetching IFB Deposit by Sector & Region data up to ${endDateStr}`);
 
   // -------------------------------------------------------------------
-  // Optimised query:
-  //   1. Read only IFB branch rows from ACTB_ACCBAL_HISTORY (single scan).
-  //   2. Dedup to the latest BKG_DATE per account with ROW_NUMBER().
-  //   3. Semi-join (EXISTS) to STTM_CUST_ACCOUNT only for the accounts
-  //      that survived — avoids loading the entire customer table.
-  //   4. Aggregate once in the final SELECT.
+  // Semantics — matches the reference SQL exactly:
+  //   1. eligible_accounts (RECORD_STAT = 'O' OR (C & MAKER_DT > end))
+  //   2. For each such account, latest BKG_DATE <= endDate (across ALL
+  //      branches — matches original `latest_dates` behaviour).
+  //   3. Keep only the IFB branch row (BRANCH_CODE > '600').
+  //
+  // Speed — improved over reference:
+  //   - ROW_NUMBER() replaces MAX + self-join  → single pass
+  //   - SUBSTR(ACCOUNT,4,7) computed once      → reused 33× in aggregates
+  //   - MATERIALIZE keeps the small base_data  → no re-evaluation
   // -------------------------------------------------------------------
   const query = `
-    WITH ifb_rows AS (
+    WITH eligible_accounts AS (
+      SELECT C.CUST_AC_NO AS ACC
+      FROM FCUBSLIVE.STTM_CUST_ACCOUNT C
+      WHERE C.RECORD_STAT = 'O'
+         OR (C.RECORD_STAT = 'C'
+             AND C.MAKER_DT_STAMP > TO_DATE(:endDate, 'DD-MON-YYYY'))
+    ),
+    ifb_rows AS (
       SELECT
         A.BRANCH_CODE,
         A.ACCOUNT,
         A.LCY_CLOSING_BAL,
         SUBSTR(A.ACCOUNT, 11, 3) AS ACC_CODE,
+        SUBSTR(A.ACCOUNT, 4, 7)  AS CUST_ID,
         ROW_NUMBER() OVER (
           PARTITION BY A.ACCOUNT
           ORDER BY A.BKG_DATE DESC
         ) AS RN
       FROM FCUBSLIVE.ACTB_ACCBAL_HISTORY A
-      WHERE A.BRANCH_CODE > '600'
-        AND A.BKG_DATE <= TO_DATE(:endDate, 'DD-MON-YYYY')
+      JOIN eligible_accounts E ON E.ACC = A.ACCOUNT
+      WHERE A.BKG_DATE <= TO_DATE(:endDate, 'DD-MON-YYYY')
     ),
     base_data AS (
-      SELECT
-        B.BRANCH_CODE,
-        B.ACCOUNT,
-        B.LCY_CLOSING_BAL,
-        B.ACC_CODE
-      FROM ifb_rows B
-      WHERE B.RN = 1
-        AND EXISTS (
-          SELECT 1
-          FROM FCUBSLIVE.STTM_CUST_ACCOUNT C
-          WHERE C.CUST_AC_NO = B.ACCOUNT
-            AND (C.RECORD_STAT = 'O'
-                 OR (C.RECORD_STAT = 'C'
-                     AND C.MAKER_DT_STAMP > TO_DATE(:endDate, 'DD-MON-YYYY')))
-        )
+      SELECT /*+ MATERIALIZE */
+        R.BRANCH_CODE,
+        R.ACCOUNT,
+        R.LCY_CLOSING_BAL,
+        R.ACC_CODE,
+        R.CUST_ID
+      FROM ifb_rows R
+      WHERE R.RN = 1
+        AND R.BRANCH_CODE > '600'
     )
     SELECT
-      BR.BRANCH_ADDR3 AS BREGION,
+      B.BRANCH_ADDR3 AS BREGION,
       'Urban' AS URBAN_RURAL,
 
       /* ---------- DEMAND ---------- */
       SUM(CASE WHEN A.ACC_CODE = '101' THEN A.LCY_CLOSING_BAL END) AS DEMAND_PUBLIC_ENT,
-      COUNT(DISTINCT CASE WHEN A.ACC_CODE = '101' THEN SUBSTR(A.ACCOUNT,4,7) END) AS DEMAND_PUBLIC_ENT_DEPOSITOR,
+      COUNT(DISTINCT CASE WHEN A.ACC_CODE = '101' THEN A.CUST_ID END) AS DEMAND_PUBLIC_ENT_DEPOSITOR,
       COUNT(CASE WHEN A.ACC_CODE = '101' THEN A.ACCOUNT END) AS DEMAND_PUBLIC_ENT_ACCOUNT,
 
       SUM(CASE WHEN A.ACC_CODE IN ('115','116','114','103','104','105','108','109','110','111','112','113','117','118','119','501','502','503','122','123','124','125','126','127','121') THEN A.LCY_CLOSING_BAL END) AS DEMAND_PRIVATE,
-      COUNT(DISTINCT CASE WHEN A.ACC_CODE IN ('115','116','114','103','104','105','108','109','110','111','112','113','117','118','119','501','502','503','122','123','124','125','126','127','121') THEN SUBSTR(A.ACCOUNT,4,7) END) AS DEMAND_PRIVATET_DEPOSITOR,
+      COUNT(DISTINCT CASE WHEN A.ACC_CODE IN ('115','116','114','103','104','105','108','109','110','111','112','113','117','118','119','501','502','503','122','123','124','125','126','127','121') THEN A.CUST_ID END) AS DEMAND_PRIVATET_DEPOSITOR,
       COUNT(CASE WHEN A.ACC_CODE IN ('115','116','114','103','104','105','108','109','110','111','112','113','117','118','119','501','502','503','122','123','124','125','126','127','121') THEN A.ACCOUNT END) AS DEMAND_PRIVATE_ACCOUNT,
 
       SUM(CASE WHEN A.ACC_CODE = '107' THEN A.LCY_CLOSING_BAL END) AS DEMAND_GOVE,
-      COUNT(DISTINCT CASE WHEN A.ACC_CODE = '107' THEN SUBSTR(A.ACCOUNT,4,7) END) AS DEMAND_GOVE_DEPOSITOR,
+      COUNT(DISTINCT CASE WHEN A.ACC_CODE = '107' THEN A.CUST_ID END) AS DEMAND_GOVE_DEPOSITOR,
       COUNT(CASE WHEN A.ACC_CODE = '107' THEN A.ACCOUNT END) AS DEMAND_GOVE_ACCOUNT,
 
       SUM(CASE WHEN A.ACC_CODE = '102' THEN A.LCY_CLOSING_BAL END) AS DEMAND_BANK,
-      COUNT(DISTINCT CASE WHEN A.ACC_CODE = '102' THEN SUBSTR(A.ACCOUNT,4,7) END) AS DEMAND_BANK_DEPOSITOR,
+      COUNT(DISTINCT CASE WHEN A.ACC_CODE = '102' THEN A.CUST_ID END) AS DEMAND_BANK_DEPOSITOR,
       COUNT(CASE WHEN A.ACC_CODE = '102' THEN A.ACCOUNT END) AS DEMAND_BANK_ACCOUNT,
 
       SUM(CASE WHEN A.ACC_CODE IN ('401','402','403','404','405','406','407','408','409','410','411','412','413') AND A.LCY_CLOSING_BAL > 0 THEN A.LCY_CLOSING_BAL END) AS DEMAND_OTHER,
-      COUNT(DISTINCT CASE WHEN A.ACC_CODE IN ('401','402','403','404','405','406','407','408','409','410','411','412','413') AND A.LCY_CLOSING_BAL > 0 THEN SUBSTR(A.ACCOUNT,4,7) END) AS DEMAND_OTHER_DEPOSITOR,
+      COUNT(DISTINCT CASE WHEN A.ACC_CODE IN ('401','402','403','404','405','406','407','408','409','410','411','412','413') AND A.LCY_CLOSING_BAL > 0 THEN A.CUST_ID END) AS DEMAND_OTHER_DEPOSITOR,
       COUNT(CASE WHEN A.ACC_CODE IN ('401','402','403','404','405','406','407','408','409','410','411','412','413') AND A.LCY_CLOSING_BAL > 0 THEN A.ACCOUNT END) AS DEMAND_OTHER_ACCOUNT,
 
       /* ---------- SAVING ---------- */
       SUM(CASE WHEN A.ACC_CODE IN ('207','206','211','202','209','203','210','213','241','242') THEN A.LCY_CLOSING_BAL END) AS SAVING_PUBLIC_ENT,
-      COUNT(DISTINCT CASE WHEN A.ACC_CODE IN ('207','206','211','202','209','203','210','213','241','242') THEN SUBSTR(A.ACCOUNT,4,7) END) AS SAVING_PUBLIC_ENT_DEPOSITOR,
+      COUNT(DISTINCT CASE WHEN A.ACC_CODE IN ('207','206','211','202','209','203','210','213','241','242') THEN A.CUST_ID END) AS SAVING_PUBLIC_ENT_DEPOSITOR,
       COUNT(CASE WHEN A.ACC_CODE IN ('207','206','211','202','209','203','210','213','241','242') THEN A.ACCOUNT END) AS SAVING_PUBLIC_ENT_ACCOUNT,
 
       SUM(CASE WHEN A.ACC_CODE IN ('212','214','216','217','220','225','226','221','222','224','201','215','219','227','228','208','218','223','205','230','231','232','233','234','235','236','237','238','239','240','243','244','245','246','247','248','249','229') THEN A.LCY_CLOSING_BAL END) AS SAVING_PRIVATE,
-      COUNT(DISTINCT CASE WHEN A.ACC_CODE IN ('212','214','216','217','220','225','226','221','222','224','201','215','219','227','228','208','218','223','205','230','231','232','233','234','235','236','237','238','239','240','243','244','245','246','247','248','249','229') THEN SUBSTR(A.ACCOUNT,4,7) END) AS SAVING_PRIVATE_DEPOSITOR,
+      COUNT(DISTINCT CASE WHEN A.ACC_CODE IN ('212','214','216','217','220','225','226','221','222','224','201','215','219','227','228','208','218','223','205','230','231','232','233','234','235','236','237','238','239','240','243','244','245','246','247','248','249','229') THEN A.CUST_ID END) AS SAVING_PRIVATE_DEPOSITOR,
       COUNT(CASE WHEN A.ACC_CODE IN ('212','214','216','217','220','225','226','221','222','224','201','215','219','227','228','208','218','223','205','230','231','232','233','234','235','236','237','238','239','240','243','244','245','246','247','248','249','229') THEN A.ACCOUNT END) AS SAVING_PRIVATE_ACCOUNT,
 
       SUM(CASE WHEN A.ACC_CODE = '204' THEN A.LCY_CLOSING_BAL END) AS SAVING_BANK,
-      COUNT(DISTINCT CASE WHEN A.ACC_CODE = '204' THEN SUBSTR(A.ACCOUNT,4,7) END) AS SAVING_BANK_DEPOSITOR,
+      COUNT(DISTINCT CASE WHEN A.ACC_CODE = '204' THEN A.CUST_ID END) AS SAVING_BANK_DEPOSITOR,
       COUNT(CASE WHEN A.ACC_CODE = '204' THEN A.ACCOUNT END) AS SAVING_BANK_ACCOUNT,
 
       /* ---------- TIME DEPOSIT ---------- */
       SUM(CASE WHEN A.ACC_CODE = '302' THEN A.LCY_CLOSING_BAL END) AS TD_PUBLIC_ENT,
-      COUNT(DISTINCT CASE WHEN A.ACC_CODE = '302' THEN SUBSTR(A.ACCOUNT,4,7) END) AS TD_PUBLIC_EN_DEPOSITOR,
+      COUNT(DISTINCT CASE WHEN A.ACC_CODE = '302' THEN A.CUST_ID END) AS TD_PUBLIC_EN_DEPOSITOR,
       COUNT(CASE WHEN A.ACC_CODE = '302' THEN A.ACCOUNT END) AS TD_PUBLIC_ENT_ACCOUNT,
 
       SUM(CASE WHEN A.ACC_CODE IN ('303','305','301') THEN A.LCY_CLOSING_BAL END) AS TD_PRIVATE,
-      COUNT(DISTINCT CASE WHEN A.ACC_CODE IN ('303','305','301') THEN SUBSTR(A.ACCOUNT,4,7) END) AS TD_PRIVATE_DEPOSITOR,
+      COUNT(DISTINCT CASE WHEN A.ACC_CODE IN ('303','305','301') THEN A.CUST_ID END) AS TD_PRIVATE_DEPOSITOR,
       COUNT(CASE WHEN A.ACC_CODE IN ('303','305','301') THEN A.ACCOUNT END) AS TD_PRIVATE_ACCOUNT,
 
       SUM(CASE WHEN A.ACC_CODE = '304' THEN A.LCY_CLOSING_BAL END) AS TD_BANK,
-      COUNT(DISTINCT CASE WHEN A.ACC_CODE = '304' THEN SUBSTR(A.ACCOUNT,4,7) END) AS TD_BANK_DEPOSITOR,
+      COUNT(DISTINCT CASE WHEN A.ACC_CODE = '304' THEN A.CUST_ID END) AS TD_BANK_DEPOSITOR,
       COUNT(CASE WHEN A.ACC_CODE = '304' THEN A.ACCOUNT END) AS TD_BANK_ACCOUNT
 
     FROM base_data A
-    JOIN FCUBSLIVE.STTM_BRANCH BR ON BR.BRANCH_CODE = A.BRANCH_CODE
-    GROUP BY BR.BRANCH_ADDR3
-    ORDER BY BR.BRANCH_ADDR3
+    JOIN FCUBSLIVE.STTM_BRANCH B ON B.BRANCH_CODE = A.BRANCH_CODE
+    GROUP BY B.BRANCH_ADDR3
+    ORDER BY B.BRANCH_ADDR3
   `;
 
   const result = await executeOracleQuery(query, { endDate: endDateStr });
@@ -252,7 +254,7 @@ export async function fetchDepositBySectorIFB(startDate, endDate) {
       accounts:   cnt(row.SAVING_BANK_ACCOUNT),
     };
 
-    // ---- TERM DEPOSIT -> stored as 'restricted' ----
+    // ---- TERM DEPOSIT -> stored as `restricted` ----
     urban.restricted.pubEnt = {
       amount:     amt(row.TD_PUBLIC_ENT),
       depositors: cnt(row.TD_PUBLIC_EN_DEPOSITOR),
@@ -268,7 +270,6 @@ export async function fetchDepositBySectorIFB(startDate, endDate) {
       depositors: cnt(row.TD_BANK_DEPOSITOR),
       accounts:   cnt(row.TD_BANK_ACCOUNT),
     };
-    // unrestricted stays 0
   }
 
   logger.info(

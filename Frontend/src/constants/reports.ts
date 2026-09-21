@@ -53,6 +53,38 @@ export const REPORT_METADATA: Record<string, ReportMeta> = {
     isWeekly: false,
     dateMode: 'range',
   },
+  'DIR RANGERD002': {
+    key: 'DIR RANGERD002',
+    name: 'Monthly Interest Free Deposit by Range and Region',
+    description: 'Interest Free Deposit distribution by range and region (IFB branches)',
+    frequency: 'Monthly',
+    isWeekly: false,
+    dateMode: 'range',
+  },
+    DIFIF002: {
+    key: 'DIFIF002',
+    name: 'Monthly Interest Free Deposit by Sector and Region',
+    description: 'Interest Free Deposit breakdown by sector and region (IFB branches)',
+    frequency: 'Monthly',
+    isWeekly: false,
+    dateMode: 'range',
+  },
+    MB001MB001: {
+    key: 'MB001MB001',
+    name: 'Monthly Balance Sheet',
+    description: 'Monthly Balance Sheet for NBE reporting',
+    frequency: 'Monthly',
+    isWeekly: false,
+    dateMode: 'range',
+  },
+    'Key Balance SheetMK001': {
+    key: 'Key Balance SheetMK001',
+    name: 'Monthly Key Balance Sheet',
+    description: 'Key Balance Sheet summary for NBE reporting',
+    frequency: 'Monthly',
+    isWeekly: false,
+    dateMode: 'range',
+  },
 };
 
 export const REPORT_KEYS = Object.keys(REPORT_METADATA);

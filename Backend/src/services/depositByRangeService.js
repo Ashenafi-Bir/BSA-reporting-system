@@ -175,7 +175,7 @@ export async function fetchDepositByRangeAndRegion(startDate, endDate) {
       FROM FCUBSLIVE.ACTB_ACCBAL_HISTORY A
       JOIN latest_dates L
         ON L.ACCOUNT = A.ACCOUNT AND L.BKG_DATE = A.BKG_DATE
-      WHERE A.BRANCH_CODE <> '000'
+      WHERE A.BRANCH_CODE <> '000' and  A.BRANCH_CODE < '600'
     )
     SELECT
       B.BRANCH_ADDR3 AS BREGION,
