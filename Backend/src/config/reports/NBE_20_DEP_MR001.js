@@ -1,91 +1,84 @@
-import { fetchTopDepositorsData } from '../../services/topDepositorsService.js';
+import { fetchTop20DepositorsData } from '../../services/top20DepositorsService.js';
+
+const MILLION = 1_000_000;
+const BASE_AREA = 168; // Area 168 = Top #1, …, Area 187 = Top #20
+
+/**
+ * Builds the 7-item payload row (Codes 1.1 … 1.7) for one depositor.
+ * Every Value is guaranteed non-empty because BSA requires all
+ * DynamicItems[i].Value fields (even optional ones) to be present.
+ */
+function buildDynamicRow(sno, row) {
+  const demand   = (row?.demand   || 0) / MILLION;
+  const saving   = (row?.saving   || 0) / MILLION;
+  const fixed    = (row?.fixed    || 0) / MILLION;
+  const total    = (row?.total    || 0) / MILLION;
+  const daysLeft = Number.isFinite(row?.daysLeft) ? row.daysLeft : 0;
+
+  const name = (row?.custName && String(row.custName).trim()) || 'N/A';
+
+  return [
+    { Code: '1.1', Value: String(sno) },                 // S.No
+    { Code: '1.2', Value: demand.toFixed(2) },           // Demand/Current
+    { Code: '1.3', Value: saving.toFixed(2) },           // Saving
+    { Code: '1.4', Value: fixed.toFixed(2) },            // Time/Fixed
+    { Code: '1.5', Value: String(daysLeft) },            // Days Left ← was "" → now "0"
+    { Code: '1.6', Value: total.toFixed(2) },            // Total per depositor
+    { Code: '1.7', Value: name },                        // Name of Depositor
+  ];
+}
 
 export default {
   reportKey: 'NBE_20_DEP_MR001',
-  instCode: process.env.BSA_INST_CODE || '0000017',
+  instCode: process.env.BSA_INST_CODE,
   finYear: new Date().getFullYear(),
-  dataFetcher: fetchTopDepositorsData,
-  includeZeroValues: false,
+  dataFetcher: fetchTop20DepositorsData,
+
+  // Subtotal / grand-total lines are structural — always emit them even if 0.
+  includeZeroValues: true,
 
   prepare(rawData) {
-    // console.log('🔍 prepare() called with rawData:', rawData); // DEBUG
+    this.fields = this.buildFields(rawData);
+    this.dynamicItems = this.buildDynamicItems(rawData);
+    return this;
+  },
 
-    // Ensure rawData is an array
-    if (!Array.isArray(rawData)) {
-      console.error('❌ rawData is not an array!');
-      this.fields = [];
-      this.dynamicItems = [];
-      return this;
-    }
+  buildFields(rawData) {
+    const sub10 = rawData?.top10Subtotal;
+    const sub20 = rawData?.top20Subtotal;
+    const val = (v) => (v || 0) / MILLION;
 
-    // Extract depositor rows (skip subtotal rows)
-    const depositors = rawData.filter(row => row.CUSTNAME !== null && row.RANK !== null);
-    const top10 = depositors.slice(0, 10);
-    const top20 = depositors;
+    return [
+      { code: '17_00001', description: 'Sub total top ten (10)_Demand/Current',       source: 'calculated', calculation: () => val(sub10?.demand) },
+      { code: '17_00002', description: 'Sub total top ten (10)_Time/Fixed',           source: 'calculated', calculation: () => val(sub10?.fixed)  },
+      { code: '17_00003', description: 'Grand total top twenty (20)_Time/Fixed',      source: 'calculated', calculation: () => val(sub20?.fixed)  },
+      { code: '17_00004', description: 'Grand total top twenty (20)_Saving',          source: 'calculated', calculation: () => val(sub20?.saving) },
+      { code: '17_00005', description: 'Grand total top twenty (20)_Demand/Current',  source: 'calculated', calculation: () => val(sub20?.demand) },
+      { code: '17_00006', description: 'Sub total top ten (10)_Total per depositor',  source: 'calculated', calculation: () => val(sub10?.total)  },
+      { code: '17_00007', description: 'Sub total top ten (10)_Saving',               source: 'calculated', calculation: () => val(sub10?.saving) },
+      { code: '17_00008', description: 'Grand total top twenty (20)_Total per depositor', source: 'calculated', calculation: () => val(sub20?.total) },
+    ];
+  },
 
-    // Sum helpers
-    const sum = (arr, key) => arr.reduce((acc, r) => acc + parseFloat(r[key] || 0), 0);
-
-    // Compute subtotals (in millions)
-    const subtotal10Demand = sum(top10, 'DEMAND') / 1000000;
-    const subtotal10Saving = sum(top10, 'SAVING') / 1000000;
-    const subtotal10Fixed = sum(top10, 'FIXED') / 1000000;
-    const subtotal10Total = sum(top10, 'TOTAL') / 1000000;
-
-    const total20Demand = sum(top20, 'DEMAND') / 1000000;
-    const total20Saving = sum(top20, 'SAVING') / 1000000;
-    const total20Fixed = sum(top20, 'FIXED') / 1000000;
-    const total20Total = sum(top20, 'TOTAL') / 1000000;
-
-    // ─── Static summary fields ──────────────────────────────
-    const staticFields = [
-      { code: '17_00001', value: subtotal10Demand },
-      { code: '17_00002', value: subtotal10Fixed },
-      { code: '17_00003', value: total20Fixed },
-      { code: '17_00004', value: total20Saving },
-      { code: '17_00005', value: total20Demand },
-      { code: '17_00006', value: subtotal10Total },
-      { code: '17_00007', value: subtotal10Saving },
-      { code: '17_00008', value: total20Total },
+  /**
+   * DynamicItemsList — 20 Areas (168 … 187), one per depositor row.
+   * Every DynamicItems entry is guaranteed to have a non-empty Value.
+   */
+  buildDynamicItems(rawData) {
+    const orderedCustomers = [
+      ...(rawData?.top10 || []),      // ranks 1..10
+      ...(rawData?.top11to20 || []),  // ranks 11..20
     ];
 
-    this.fields = staticFields.map(f => ({
-      code: f.code,
-      description: '',
-      source: 'calculated',
-      calculation: () => f.value
-    }));
-
-    // ─── Dynamic items (rows) ──────────────────────────────
-    const buildAreaItems = (rows, area) => {
-      const items = [];
-      rows.forEach((row, idx) => {
-        const rowNum = idx + 1;
-        const rowData = [
-          { Code: '1.1', Value: String(rowNum) },
-          { Code: '1.2', Value: row.CUSTNAME || '' },
-          { Code: '1.3', Value: (parseFloat(row.DEMAND) / 1000000).toFixed(2) },
-          { Code: '1.4', Value: (parseFloat(row.SAVING) / 1000000).toFixed(2) },
-          { Code: '1.5', Value: (parseFloat(row.FIXED) / 1000000).toFixed(2) },
-          { Code: '1.6', Value: '0' },
-          { Code: '1.7', Value: (parseFloat(row.TOTAL) / 1000000).toFixed(2) },
-        ];
-        items.push(...rowData);
+    const areas = [];
+    orderedCustomers.forEach((row, idx) => {
+      areas.push({
+        Area: BASE_AREA + idx,
+        _areaName: null,
+        DynamicItems: buildDynamicRow(idx + 1, row),
       });
-      return {
-        Area: area,
-        _areaName: '',
-        DynamicItems: items
-      };
-    };
+    });
 
-    const area168 = buildAreaItems(top10, 168);
-    const area169 = buildAreaItems(top20.slice(10), 169);
-    area168._areaName = 'Top 10 Depositors';
-    area169._areaName = 'Next 10 Depositors (11-20)';
-
-    this.dynamicItems = [area168, area169];
-    // console.log('✅ dynamicItems set:', JSON.stringify(this.dynamicItems, null, 2)); // DEBUG
-    return this;
-  }
+    return areas;
+  },
 };

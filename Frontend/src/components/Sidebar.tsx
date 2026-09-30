@@ -48,7 +48,12 @@ const ReportsIcon = () => (
     <polyline points="10 9 9 9 8 9" />
   </svg>
 );
-
+const ScheduleIcon = () => (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10" />
+    <polyline points="12 6 12 12 16 14" />
+  </svg>
+);
 const HistoryIcon = () => (
   <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <circle cx="12" cy="12" r="10" />
@@ -121,16 +126,27 @@ const Sidebar: React.FC<SidebarProps> = ({ user }) => {
           <span className="nav-icon"><ReportsIcon /></span>
           Reports
         </Link>
+ 
         <Link to="/history" className={isActive('/history') ? 'active' : ''}>
           <span className="nav-icon"><HistoryIcon /></span>
           History
         </Link>
-        {user?.role === 'Admin' && (
-          <Link to="/admin" className={isActive('/admin') ? 'active' : ''}>
-            <span className="nav-icon"><AdminIcon /></span>
-            Admin Panel
-          </Link>
-        )}
+{user?.role === 'Admin' && (
+  <>
+    <Link to="/schedules" className={isActive('/schedules') ? 'active' : ''}>
+      <span className="nav-icon"><ScheduleIcon /></span>
+      Schedules
+    </Link>
+      </>
+)}
+{['Admin', 'Itmaker'].includes(user?.role) && (
+  <>
+    <Link to="/admin" className={isActive('/admin') ? 'active' : ''}>
+      <span className="nav-icon"><AdminIcon /></span>
+      User Management
+    </Link>
+</>
+)}
       </nav>
       <button className="logout-btn" onClick={handleLogout}>
         <span className="nav-icon"><LogoutIcon /></span>

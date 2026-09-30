@@ -54,18 +54,15 @@ const emptyRanges = () => ({
   range3: emptyMetric(),
 });
 const emptyAccountType = () => ({
-  demand:       emptyRanges(),
-  saving:       emptyRanges(),
-  time:         emptyRanges(),
-  restricted:   emptyRanges(),   // SQL doesn't split — always zero
-  unrestricted: emptyRanges(),   // SQL doesn't split — always zero
+  demand: emptyRanges(),
+  saving: emptyRanges(),
+  time:   emptyRanges(),
 });
 const emptyLocation = () => ({
   urban: emptyAccountType(),
   rural: emptyAccountType(),
 });
 
-/* ------------------------------------------------------------------ */
 function num(v) {
   if (v === null || v === undefined) return 0;
   const n = typeof v === 'number' ? v : parseFloat(v);
@@ -88,8 +85,6 @@ export async function fetchDepositByRangeIFB(startDate, endDate) {
   const endDateStr = formatOracleDate(endDate);
   logger.info(`Fetching IFB Deposit by Range & Region data up to ${endDateStr}`);
 
-  // The SQL is the exact same as the one you run manually — I only
-  // substituted &TODT with :endDate so it can be bound safely.
   const query = `
     WITH eligible_accounts AS (
       SELECT
@@ -114,7 +109,6 @@ export async function fetchDepositByRangeIFB(startDate, endDate) {
       FROM FCUBSLIVE.ACTB_ACCBAL_HISTORY A
       JOIN eligible_accounts C ON C.ACC = A.ACCOUNT
       WHERE A.BKG_DATE <= TO_DATE(:endDate, 'DD-MON-YYYY')
-        AND LENGTH(A.ACCOUNT) = 16
     ),
     base_data AS (
       SELECT
@@ -131,7 +125,7 @@ export async function fetchDepositByRangeIFB(startDate, endDate) {
       FROM account_latest_balance A
       WHERE A.RN = 1
         AND A.BRANCH_CODE > '600'
-        AND A.LCY_CLOSING_BAL > 0
+        AND A.LCY_CLOSING_BAL >= 0
     )
     SELECT
       B.BRANCH_ADDR3 AS BREGION,
@@ -198,12 +192,10 @@ export async function fetchDepositByRangeIFB(startDate, endDate) {
 
       SUM(CASE WHEN A.ACCOUNT_TYPE = 'Y' AND A.BAL_BAND = 'ABOVE_MIL'
                THEN A.LCY_CLOSING_BAL ELSE 0 END) AS TD_Above_Million,
-      /* NOTE: alias intentionally preserves the "TTD" typo from your SQL */
       COUNT(DISTINCT CASE WHEN A.ACCOUNT_TYPE = 'Y' AND A.BAL_BAND = 'ABOVE_MIL'
-                          THEN SUBSTR(A.ACCOUNT,4,7) END) AS TTD_Above_Million_Depositor,
-      /* NOTE: alias intentionally preserves the "_Count" suffix from your SQL */
+                          THEN SUBSTR(A.ACCOUNT,4,7) END) AS TD_Above_Million_Depositor,
       COUNT(CASE WHEN A.ACCOUNT_TYPE = 'Y' AND A.BAL_BAND = 'ABOVE_MIL'
-                 THEN A.ACCOUNT END) AS TD_Above_Million_Count
+                 THEN A.ACCOUNT END) AS TD_Above_Million_Account
     FROM base_data A
     JOIN FCUBSLIVE.STTM_BRANCH B ON B.BRANCH_CODE = A.BRANCH_CODE
     GROUP BY B.BRANCH_ADDR3
@@ -218,9 +210,6 @@ export async function fetchDepositByRangeIFB(startDate, endDate) {
     regionData[region] = emptyLocation();
   }
 
-  /* ------------------------------------------------------------------ */
-  /*  Row -> nested structure (using the EXACT Oracle-uppercased keys)   */
-  /* ------------------------------------------------------------------ */
   for (const row of result.rows) {
     const rawRegion = String(row.BREGION || '').toUpperCase().trim();
     const region = REGION_NAME_MAP[rawRegion];
@@ -275,10 +264,10 @@ export async function fetchDepositByRangeIFB(startDate, endDate) {
     };
     urban.time.range3 = {
       amount:     amt(row.TD_ABOVE_MILLION),
-      // preserve the "TTD" typo in the alias you supplied
-      depositors: cnt(row.TTD_ABOVE_MILLION_DEPOSITOR),
-      // preserve the "_Count" suffix in the alias you supplied
-      accounts:   cnt(row.TD_ABOVE_MILLION_COUNT),
+      // ✅ Fixed: reference uses TD_Above_Million_Depositor (not TTD)
+      depositors: cnt(row.TD_ABOVE_MILLION_DEPOSITOR),
+      // ✅ Fixed: reference uses TD_Above_Million_Account (not _Count)
+      accounts:   cnt(row.TD_ABOVE_MILLION_ACCOUNT),
     };
   }
 

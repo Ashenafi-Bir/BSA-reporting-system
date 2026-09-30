@@ -49,6 +49,8 @@ export const TARGET_REGIONS = [
 const AMOUNT_DIVISOR = 1_000_000;
 
 /* ------------------------------------------------------------------ */
+/*  Helpers                                                            */
+/* ------------------------------------------------------------------ */
 const emptyMetric = () => ({ amount: 0, depositors: 0, accounts: 0 });
 
 const emptySector = () => ({
@@ -62,8 +64,8 @@ const emptySector = () => ({
 const emptyAccountType = () => ({
   demand:       emptySector(),
   saving:       emptySector(),
-  restricted:   emptySector(),
-  unrestricted: emptySector(),
+  restricted:   emptySector(),   // <- populated from TD_* SQL columns
+  unrestricted: emptySector(),   // <- always 0 (SQL doesn't split)
 });
 
 const emptyLocation = () => ({
@@ -94,16 +96,17 @@ export async function fetchDepositBySectorIFB(startDate, endDate) {
   logger.info(`Fetching IFB Deposit by Sector & Region data up to ${endDateStr}`);
 
   // -------------------------------------------------------------------
-  // Semantics — matches the reference SQL exactly:
-  //   1. eligible_accounts (RECORD_STAT = 'O' OR (C & MAKER_DT > end))
-  //   2. For each such account, latest BKG_DATE <= endDate (across ALL
-  //      branches — matches original `latest_dates` behaviour).
-  //   3. Keep only the IFB branch row (BRANCH_CODE > '600').
+  //  Matches the reference SQL:
+  //    1. eligible_accounts — RECORD_STAT = 'O' OR (C & MAKER_DT > end)
+  //    2. ROW_NUMBER() → latest BKG_DATE per account (across all branches)
+  //    3. IFB branches only: BRANCH_CODE > '600'
+  //    4. Positive / zero balances only: LCY_CLOSING_BAL >= 0
+  //    5. Aggregate once grouped by region
   //
-  // Speed — improved over reference:
-  //   - ROW_NUMBER() replaces MAX + self-join  → single pass
-  //   - SUBSTR(ACCOUNT,4,7) computed once      → reused 33× in aggregates
-  //   - MATERIALIZE keeps the small base_data  → no re-evaluation
+  //  Speedups vs. reference:
+  //    - SUBSTR(ACCOUNT,4,7) computed once as CUST_ID, reused in every
+  //      COUNT(DISTINCT …) — avoids 33 recomputations per row.
+  //    - MATERIALIZE keeps the small IFB-only set in memory.
   // -------------------------------------------------------------------
   const query = `
     WITH eligible_accounts AS (
@@ -138,6 +141,7 @@ export async function fetchDepositBySectorIFB(startDate, endDate) {
       FROM ifb_rows R
       WHERE R.RN = 1
         AND R.BRANCH_CODE > '600'
+        AND R.LCY_CLOSING_BAL >= 0
     )
     SELECT
       B.BRANCH_ADDR3 AS BREGION,
@@ -149,7 +153,7 @@ export async function fetchDepositBySectorIFB(startDate, endDate) {
       COUNT(CASE WHEN A.ACC_CODE = '101' THEN A.ACCOUNT END) AS DEMAND_PUBLIC_ENT_ACCOUNT,
 
       SUM(CASE WHEN A.ACC_CODE IN ('115','116','114','103','104','105','108','109','110','111','112','113','117','118','119','501','502','503','122','123','124','125','126','127','121') THEN A.LCY_CLOSING_BAL END) AS DEMAND_PRIVATE,
-      COUNT(DISTINCT CASE WHEN A.ACC_CODE IN ('115','116','114','103','104','105','108','109','110','111','112','113','117','118','119','501','502','503','122','123','124','125','126','127','121') THEN A.CUST_ID END) AS DEMAND_PRIVATET_DEPOSITOR,
+      COUNT(DISTINCT CASE WHEN A.ACC_CODE IN ('115','116','114','103','104','105','108','109','110','111','112','113','117','118','119','501','502','503','122','123','124','125','126','127','121') THEN A.CUST_ID END) AS DEMAND_PRIVATE_DEPOSITOR,
       COUNT(CASE WHEN A.ACC_CODE IN ('115','116','114','103','104','105','108','109','110','111','112','113','117','118','119','501','502','503','122','123','124','125','126','127','121') THEN A.ACCOUNT END) AS DEMAND_PRIVATE_ACCOUNT,
 
       SUM(CASE WHEN A.ACC_CODE = '107' THEN A.LCY_CLOSING_BAL END) AS DEMAND_GOVE,
@@ -160,9 +164,9 @@ export async function fetchDepositBySectorIFB(startDate, endDate) {
       COUNT(DISTINCT CASE WHEN A.ACC_CODE = '102' THEN A.CUST_ID END) AS DEMAND_BANK_DEPOSITOR,
       COUNT(CASE WHEN A.ACC_CODE = '102' THEN A.ACCOUNT END) AS DEMAND_BANK_ACCOUNT,
 
-      SUM(CASE WHEN A.ACC_CODE IN ('401','402','403','404','405','406','407','408','409','410','411','412','413') AND A.LCY_CLOSING_BAL > 0 THEN A.LCY_CLOSING_BAL END) AS DEMAND_OTHER,
-      COUNT(DISTINCT CASE WHEN A.ACC_CODE IN ('401','402','403','404','405','406','407','408','409','410','411','412','413') AND A.LCY_CLOSING_BAL > 0 THEN A.CUST_ID END) AS DEMAND_OTHER_DEPOSITOR,
-      COUNT(CASE WHEN A.ACC_CODE IN ('401','402','403','404','405','406','407','408','409','410','411','412','413') AND A.LCY_CLOSING_BAL > 0 THEN A.ACCOUNT END) AS DEMAND_OTHER_ACCOUNT,
+      SUM(CASE WHEN A.ACC_CODE IN ('401','402','403','404','405','406','407','408','409','410','411','412','413') AND A.LCY_CLOSING_BAL >= 0 THEN A.LCY_CLOSING_BAL END) AS DEMAND_OTHER,
+      COUNT(DISTINCT CASE WHEN A.ACC_CODE IN ('401','402','403','404','405','406','407','408','409','410','411','412','413') AND A.LCY_CLOSING_BAL >= 0 THEN A.CUST_ID END) AS DEMAND_OTHER_DEPOSITOR,
+      COUNT(CASE WHEN A.ACC_CODE IN ('401','402','403','404','405','406','407','408','409','410','411','412','413') AND A.LCY_CLOSING_BAL >= 0 THEN A.ACCOUNT END) AS DEMAND_OTHER_ACCOUNT,
 
       /* ---------- SAVING ---------- */
       SUM(CASE WHEN A.ACC_CODE IN ('207','206','211','202','209','203','210','213','241','242') THEN A.LCY_CLOSING_BAL END) AS SAVING_PUBLIC_ENT,
@@ -179,7 +183,7 @@ export async function fetchDepositBySectorIFB(startDate, endDate) {
 
       /* ---------- TIME DEPOSIT ---------- */
       SUM(CASE WHEN A.ACC_CODE = '302' THEN A.LCY_CLOSING_BAL END) AS TD_PUBLIC_ENT,
-      COUNT(DISTINCT CASE WHEN A.ACC_CODE = '302' THEN A.CUST_ID END) AS TD_PUBLIC_EN_DEPOSITOR,
+      COUNT(DISTINCT CASE WHEN A.ACC_CODE = '302' THEN A.CUST_ID END) AS TD_PUBLIC_ENT_DEPOSITOR,
       COUNT(CASE WHEN A.ACC_CODE = '302' THEN A.ACCOUNT END) AS TD_PUBLIC_ENT_ACCOUNT,
 
       SUM(CASE WHEN A.ACC_CODE IN ('303','305','301') THEN A.LCY_CLOSING_BAL END) AS TD_PRIVATE,
@@ -218,7 +222,7 @@ export async function fetchDepositBySectorIFB(startDate, endDate) {
     };
     urban.demand.private = {
       amount:     amt(row.DEMAND_PRIVATE),
-      depositors: cnt(row.DEMAND_PRIVATET_DEPOSITOR),
+      depositors: cnt(row.DEMAND_PRIVATE_DEPOSITOR),
       accounts:   cnt(row.DEMAND_PRIVATE_ACCOUNT),
     };
     urban.demand.gov = {
@@ -254,10 +258,10 @@ export async function fetchDepositBySectorIFB(startDate, endDate) {
       accounts:   cnt(row.SAVING_BANK_ACCOUNT),
     };
 
-    // ---- TERM DEPOSIT -> stored as `restricted` ----
+    // ---- TERM DEPOSIT -> stored as `restricted` (config reads .restricted) ----
     urban.restricted.pubEnt = {
       amount:     amt(row.TD_PUBLIC_ENT),
-      depositors: cnt(row.TD_PUBLIC_EN_DEPOSITOR),
+      depositors: cnt(row.TD_PUBLIC_ENT_DEPOSITOR),
       accounts:   cnt(row.TD_PUBLIC_ENT_ACCOUNT),
     };
     urban.restricted.private = {

@@ -361,22 +361,24 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
           )}
 
           <div className="actions">
+          
             <button
               className="btn btn-primary"
+              onClick={handlePreview}
+              disabled={previewLoading ||  !Boolean(selectedReportKey) ||
+  Boolean(rangeInvalid)}
+            >
+              {previewLoading ? 'Loading...' : 'Preview Payload'}
+            </button>
+              <button
+              className="btn btn-secondary"
               onClick={handleTrigger}
               disabled={
-                submitting || !isAdmin || !selectedReportKey || rangeInvalid
+                submitting || !isAdmin || !Boolean(selectedReportKey) || Boolean(rangeInvalid)
               }
               title={!isAdmin ? 'Only administrators can run reports' : ''}
             >
-              {submitting ? 'Submitting...' : 'Run Report'}
-            </button>
-            <button
-              className="btn btn-secondary"
-              onClick={handlePreview}
-              disabled={previewLoading || !selectedReportKey || rangeInvalid}
-            >
-              {previewLoading ? 'Loading...' : 'Preview Payload'}
+              {submitting ? 'Submitting...' : 'Send Report'}
             </button>
             {payloadPreview && (
               <button

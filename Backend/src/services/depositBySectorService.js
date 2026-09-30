@@ -3,7 +3,7 @@ import logger from '../config/logger.js';
 
 /**
  * Map raw CBS region names (BRANCH_ADDR3) -> display names used in the JSON.
- * SNNP is intentionally null (dissolved into SWERS / CERS / SERS).
+ * SNNP has been dissolved into SWERS / CERS / SERS and must report empty.
  */
 const REGION_NAME_MAP = {
   'ADDIS ABABA': 'Addis Ababa',
@@ -46,8 +46,14 @@ export const TARGET_REGIONS = [
   'SWERS', 'CERS', 'SERS',
 ];
 
+/**
+ * Amounts are converted to Millions of Birr to match the Excel template
+ * (header: "In Millions of Birr"). Depositor / Account counts are left raw.
+ */
 const AMOUNT_DIVISOR = 1_000_000;
 
+/* ------------------------------------------------------------------ */
+/*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
 const emptyMetric = () => ({ amount: 0, depositors: 0, accounts: 0 });
 
@@ -59,22 +65,17 @@ const emptySector = () => ({
   other:   emptyMetric(),
 });
 
-/**
- * SQL only splits TD (Time Deposit) — no separate "restricted" vs
- * "unrestricted" columns exist. We therefore:
- *   - store SQL's TD_* values under `restricted`
- *   - leave `unrestricted` at 0
- *   - `time` block in the config is computed as Restricted + Unrestricted
- *     (matching the Excel formula =C20+C21)
- */
-const emptyLocation = () => ({
-  demand:       emptySector(),
-  saving:       emptySector(),
-  restricted:   emptySector(),   // <- populated from TD_* SQL columns
-  unrestricted: emptySector(),   // <- always 0
+const emptyAccountType = () => ({
+  demand: emptySector(),
+  saving: emptySector(),
+  time:   emptySector(),
 });
 
-/* ------------------------------------------------------------------ */
+const emptyLocation = () => ({
+  urban: emptyAccountType(),
+  rural: emptyAccountType(),
+});
+
 function num(v) {
   if (v === null || v === undefined) return 0;
   const n = typeof v === 'number' ? v : parseFloat(v);
@@ -86,60 +87,63 @@ const cnt = (v) => num(v);
 /* ------------------------------------------------------------------ */
 /*  Main fetcher                                                       */
 /* ------------------------------------------------------------------ */
-export async function fetchDepositBySectorIFB(startDate, endDate) {
+export async function fetchDepositBySectorAndRegion(startDate, endDate) {
   if (!startDate || !(startDate instanceof Date) || isNaN(startDate.getTime())) {
-    throw new Error('Invalid startDate provided to fetchDepositBySectorIFB');
+    throw new Error('Invalid startDate provided to fetchDepositBySectorAndRegion');
   }
   if (!endDate || !(endDate instanceof Date) || isNaN(endDate.getTime())) {
-    throw new Error('Invalid endDate provided to fetchDepositBySectorIFB');
+    throw new Error('Invalid endDate provided to fetchDepositBySectorAndRegion');
   }
 
   const endDateStr = formatOracleDate(endDate);
-  logger.info(`Fetching IFB Deposit by Sector & Region data up to ${endDateStr}`);
+  logger.info(`Fetching Deposit by Sector & Region data up to ${endDateStr}`);
 
   // -------------------------------------------------------------------
-  // Optimised query:
-  //   1. Read only IFB branch rows from ACTB_ACCBAL_HISTORY (single scan).
-  //   2. Dedup to the latest BKG_DATE per account with ROW_NUMBER().
-  //   3. Semi-join (EXISTS) to STTM_CUST_ACCOUNT only for the accounts
-  //      that survived — avoids loading the entire customer table.
-  //   4. Aggregate once in the final SELECT.
+  //  Matches the reference SQL exactly:
+  //    1. eligible_accounts — RECORD_STAT = 'O' OR (C & MAKER_DT > end)
+  //    2. ROW_NUMBER() dedup → guarantees exactly one row per account,
+  //       even when BKG_DATE ties (which the old MAX + JOIN pattern
+  //       couldn't handle → was inflating SUMs and zeroing the TD Depositor
+  //       count via a bad alias).
+  //    3. Conventional branches only: <> '000' AND < '600'
+  //    4. Positive / zero balances only: LCY_CLOSING_BAL >= 0
+  //    5. One aggregate SELECT grouped by region.
   // -------------------------------------------------------------------
   const query = `
-    WITH ifb_rows AS (
-      SELECT
-        A.BRANCH_CODE,
-        A.ACCOUNT,
-        A.LCY_CLOSING_BAL,
-        SUBSTR(A.ACCOUNT, 11, 3) AS ACC_CODE,
-        ROW_NUMBER() OVER (
-          PARTITION BY A.ACCOUNT
-          ORDER BY A.BKG_DATE DESC
-        ) AS RN
-      FROM FCUBSLIVE.ACTB_ACCBAL_HISTORY A
-      WHERE A.BRANCH_CODE > '600'
-        AND A.BKG_DATE <= TO_DATE(:endDate, 'DD-MON-YYYY')
+    WITH eligible_accounts AS (
+      SELECT C.CUST_AC_NO AS ACC
+      FROM FCUBSLIVE.STTM_CUST_ACCOUNT C
+      WHERE C.RECORD_STAT = 'O'
+         OR (C.RECORD_STAT = 'C'
+             AND C.MAKER_DT_STAMP > TO_DATE(:endDate, 'DD-MON-YYYY'))
     ),
-    base_data AS (
-      SELECT
-        B.BRANCH_CODE,
-        B.ACCOUNT,
-        B.LCY_CLOSING_BAL,
-        B.ACC_CODE
-      FROM ifb_rows B
-      WHERE B.RN = 1
-        AND EXISTS (
-          SELECT 1
-          FROM FCUBSLIVE.STTM_CUST_ACCOUNT C
-          WHERE C.CUST_AC_NO = B.ACCOUNT
-            AND (C.RECORD_STAT = 'O'
-                 OR (C.RECORD_STAT = 'C'
-                     AND C.MAKER_DT_STAMP > TO_DATE(:endDate, 'DD-MON-YYYY')))
-        )
+    latest_data AS (
+      SELECT A.BRANCH_CODE,
+             A.ACCOUNT,
+             A.LCY_CLOSING_BAL,
+             A.ACC_CODE
+      FROM (
+        SELECT A.BRANCH_CODE,
+               A.ACCOUNT,
+               A.LCY_CLOSING_BAL,
+               A.BKG_DATE,
+               SUBSTR(A.ACCOUNT, 11, 3) AS ACC_CODE,
+               ROW_NUMBER() OVER (
+                 PARTITION BY A.ACCOUNT
+                 ORDER BY A.BKG_DATE DESC
+               ) AS RN
+        FROM FCUBSLIVE.ACTB_ACCBAL_HISTORY A
+        JOIN eligible_accounts E ON E.ACC = A.ACCOUNT
+        WHERE A.BKG_DATE <= TO_DATE(:endDate, 'DD-MON-YYYY')
+      ) A
+      WHERE A.RN = 1
+        AND A.BRANCH_CODE <> '000'
+        AND A.BRANCH_CODE < '600'
+        AND A.LCY_CLOSING_BAL >= 0
     )
     SELECT
-      BR.BRANCH_ADDR3 AS BREGION,
-      'Urban' AS URBAN_RURAL,
+      B.BRANCH_ADDR3 AS BREGION,
+      'Urban' AS "Urban/Rural",
 
       /* ---------- DEMAND ---------- */
       SUM(CASE WHEN A.ACC_CODE = '101' THEN A.LCY_CLOSING_BAL END) AS DEMAND_PUBLIC_ENT,
@@ -147,7 +151,7 @@ export async function fetchDepositBySectorIFB(startDate, endDate) {
       COUNT(CASE WHEN A.ACC_CODE = '101' THEN A.ACCOUNT END) AS DEMAND_PUBLIC_ENT_ACCOUNT,
 
       SUM(CASE WHEN A.ACC_CODE IN ('115','116','114','103','104','105','108','109','110','111','112','113','117','118','119','501','502','503','122','123','124','125','126','127','121') THEN A.LCY_CLOSING_BAL END) AS DEMAND_PRIVATE,
-      COUNT(DISTINCT CASE WHEN A.ACC_CODE IN ('115','116','114','103','104','105','108','109','110','111','112','113','117','118','119','501','502','503','122','123','124','125','126','127','121') THEN SUBSTR(A.ACCOUNT,4,7) END) AS DEMAND_PRIVATET_DEPOSITOR,
+      COUNT(DISTINCT CASE WHEN A.ACC_CODE IN ('115','116','114','103','104','105','108','109','110','111','112','113','117','118','119','501','502','503','122','123','124','125','126','127','121') THEN SUBSTR(A.ACCOUNT,4,7) END) AS DEMAND_PRIVATE_DEPOSITOR,
       COUNT(CASE WHEN A.ACC_CODE IN ('115','116','114','103','104','105','108','109','110','111','112','113','117','118','119','501','502','503','122','123','124','125','126','127','121') THEN A.ACCOUNT END) AS DEMAND_PRIVATE_ACCOUNT,
 
       SUM(CASE WHEN A.ACC_CODE = '107' THEN A.LCY_CLOSING_BAL END) AS DEMAND_GOVE,
@@ -158,9 +162,9 @@ export async function fetchDepositBySectorIFB(startDate, endDate) {
       COUNT(DISTINCT CASE WHEN A.ACC_CODE = '102' THEN SUBSTR(A.ACCOUNT,4,7) END) AS DEMAND_BANK_DEPOSITOR,
       COUNT(CASE WHEN A.ACC_CODE = '102' THEN A.ACCOUNT END) AS DEMAND_BANK_ACCOUNT,
 
-      SUM(CASE WHEN A.ACC_CODE IN ('401','402','403','404','405','406','407','408','409','410','411','412','413') AND A.LCY_CLOSING_BAL > 0 THEN A.LCY_CLOSING_BAL END) AS DEMAND_OTHER,
-      COUNT(DISTINCT CASE WHEN A.ACC_CODE IN ('401','402','403','404','405','406','407','408','409','410','411','412','413') AND A.LCY_CLOSING_BAL > 0 THEN SUBSTR(A.ACCOUNT,4,7) END) AS DEMAND_OTHER_DEPOSITOR,
-      COUNT(CASE WHEN A.ACC_CODE IN ('401','402','403','404','405','406','407','408','409','410','411','412','413') AND A.LCY_CLOSING_BAL > 0 THEN A.ACCOUNT END) AS DEMAND_OTHER_ACCOUNT,
+      SUM(CASE WHEN A.ACC_CODE IN ('401','402','403','404','405','406','407','408','409','410','411','412','413') AND A.LCY_CLOSING_BAL >= 0 THEN A.LCY_CLOSING_BAL END) AS DEMAND_OTHER,
+      COUNT(DISTINCT CASE WHEN A.ACC_CODE IN ('401','402','403','404','405','406','407','408','409','410','411','412','413') AND A.LCY_CLOSING_BAL >= 0 THEN SUBSTR(A.ACCOUNT,4,7) END) AS DEMAND_OTHER_DEPOSITOR,
+      COUNT(CASE WHEN A.ACC_CODE IN ('401','402','403','404','405','406','407','408','409','410','411','412','413') AND A.LCY_CLOSING_BAL >= 0 THEN A.ACCOUNT END) AS DEMAND_OTHER_ACCOUNT,
 
       /* ---------- SAVING ---------- */
       SUM(CASE WHEN A.ACC_CODE IN ('207','206','211','202','209','203','210','213','241','242') THEN A.LCY_CLOSING_BAL END) AS SAVING_PUBLIC_ENT,
@@ -177,7 +181,7 @@ export async function fetchDepositBySectorIFB(startDate, endDate) {
 
       /* ---------- TIME DEPOSIT ---------- */
       SUM(CASE WHEN A.ACC_CODE = '302' THEN A.LCY_CLOSING_BAL END) AS TD_PUBLIC_ENT,
-      COUNT(DISTINCT CASE WHEN A.ACC_CODE = '302' THEN SUBSTR(A.ACCOUNT,4,7) END) AS TD_PUBLIC_EN_DEPOSITOR,
+      COUNT(DISTINCT CASE WHEN A.ACC_CODE = '302' THEN SUBSTR(A.ACCOUNT,4,7) END) AS TD_PUBLIC_ENT_DEPOSITOR,
       COUNT(CASE WHEN A.ACC_CODE = '302' THEN A.ACCOUNT END) AS TD_PUBLIC_ENT_ACCOUNT,
 
       SUM(CASE WHEN A.ACC_CODE IN ('303','305','301') THEN A.LCY_CLOSING_BAL END) AS TD_PRIVATE,
@@ -188,10 +192,10 @@ export async function fetchDepositBySectorIFB(startDate, endDate) {
       COUNT(DISTINCT CASE WHEN A.ACC_CODE = '304' THEN SUBSTR(A.ACCOUNT,4,7) END) AS TD_BANK_DEPOSITOR,
       COUNT(CASE WHEN A.ACC_CODE = '304' THEN A.ACCOUNT END) AS TD_BANK_ACCOUNT
 
-    FROM base_data A
-    JOIN FCUBSLIVE.STTM_BRANCH BR ON BR.BRANCH_CODE = A.BRANCH_CODE
-    GROUP BY BR.BRANCH_ADDR3
-    ORDER BY BR.BRANCH_ADDR3
+    FROM latest_data A
+    JOIN FCUBSLIVE.STTM_BRANCH B ON B.BRANCH_CODE = A.BRANCH_CODE
+    GROUP BY B.BRANCH_ADDR3
+    ORDER BY B.BRANCH_ADDR3
   `;
 
   const result = await executeOracleQuery(query, { endDate: endDateStr });
@@ -216,7 +220,7 @@ export async function fetchDepositBySectorIFB(startDate, endDate) {
     };
     urban.demand.private = {
       amount:     amt(row.DEMAND_PRIVATE),
-      depositors: cnt(row.DEMAND_PRIVATET_DEPOSITOR),
+      depositors: cnt(row.DEMAND_PRIVATE_DEPOSITOR),
       accounts:   cnt(row.DEMAND_PRIVATE_ACCOUNT),
     };
     urban.demand.gov = {
@@ -235,7 +239,7 @@ export async function fetchDepositBySectorIFB(startDate, endDate) {
       accounts:   cnt(row.DEMAND_OTHER_ACCOUNT),
     };
 
-    // ---- SAVING ----
+    // ---- SAVING ----  (gov & other not returned by SQL -> remain 0)
     urban.saving.pubEnt = {
       amount:     amt(row.SAVING_PUBLIC_ENT),
       depositors: cnt(row.SAVING_PUBLIC_ENT_DEPOSITOR),
@@ -252,27 +256,26 @@ export async function fetchDepositBySectorIFB(startDate, endDate) {
       accounts:   cnt(row.SAVING_BANK_ACCOUNT),
     };
 
-    // ---- TERM DEPOSIT -> stored as 'restricted' ----
-    urban.restricted.pubEnt = {
+    // ---- TIME DEPOSIT ----  (gov & other not returned by SQL -> remain 0)
+    urban.time.pubEnt = {
       amount:     amt(row.TD_PUBLIC_ENT),
-      depositors: cnt(row.TD_PUBLIC_EN_DEPOSITOR),
+      depositors: cnt(row.TD_PUBLIC_ENT_DEPOSITOR),
       accounts:   cnt(row.TD_PUBLIC_ENT_ACCOUNT),
     };
-    urban.restricted.private = {
+    urban.time.private = {
       amount:     amt(row.TD_PRIVATE),
       depositors: cnt(row.TD_PRIVATE_DEPOSITOR),
       accounts:   cnt(row.TD_PRIVATE_ACCOUNT),
     };
-    urban.restricted.bank = {
+    urban.time.bank = {
       amount:     amt(row.TD_BANK),
       depositors: cnt(row.TD_BANK_DEPOSITOR),
       accounts:   cnt(row.TD_BANK_ACCOUNT),
     };
-    // unrestricted stays 0
   }
 
   logger.info(
-    `Fetched IFB Deposit-by-Sector data for ${Object.keys(regionData).length} regions (amounts in Millions of Birr).`
+    `Fetched Deposit-by-Sector data for ${Object.keys(regionData).length} regions (amounts in Millions of Birr).`
   );
   return regionData;
 }

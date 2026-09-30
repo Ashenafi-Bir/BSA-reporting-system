@@ -195,7 +195,7 @@ async function createTables(pool) {
 }
 
 async function insertDefaultRoles(pool) {
-  const roles = ['Admin', 'ITMaker', 'IBD', 'Finance', 'Credit'];
+  const roles = ['Admin', 'ITMaker', 'IBD', 'Finance', 'Credit', 'Planning', 'IFB'];
   for (const role of roles) {
     await pool.request()
       .input('name', role)

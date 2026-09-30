@@ -77,6 +77,14 @@ export const REPORT_METADATA: Record<string, ReportMeta> = {
     isWeekly: false,
     dateMode: 'range',
   },
+  FASDBSFABS001: {                                        // ← NEW
+    key: 'FASDBSFABS001',
+    name: 'FASD Monthly Balance Sheet',
+    description: 'Financial Assets and Balance Sheet detailed report for NBE',
+    frequency: 'Monthly',
+    isWeekly: false,
+    dateMode: 'range',
+  },
     'Key Balance SheetMK001': {
     key: 'Key Balance SheetMK001',
     name: 'Monthly Key Balance Sheet',
@@ -85,6 +93,23 @@ export const REPORT_METADATA: Record<string, ReportMeta> = {
     isWeekly: false,
     dateMode: 'range',
   },
+  'LOAN_RAN & REGRL002': {
+    key: 'LOAN_RAN & REGRL002',
+    name: 'FASD report on Monthly Loan by Range & Region',
+    description: 'Monthly conventional loans distribution by range and region (Term / Overdraft / Merch. loan)',
+    frequency: 'Monthly',
+    isWeekly: false,
+    dateMode: 'range',
+  },
+    'LOAN_SEC & REGRS002': {
+    key: 'LOAN_SEC & REGRS002',
+    name: 'FASD report on Monthly Loan by Sector & Region',
+    description: 'Monthly conventional loans distribution by sector and region (Public Enterprise, Private & Coop., Regional Gov\'t, Banks, Others)',
+    frequency: 'Monthly',
+    isWeekly: false,
+    dateMode: 'range',
+  },
+
 };
 
 export const REPORT_KEYS = Object.keys(REPORT_METADATA);

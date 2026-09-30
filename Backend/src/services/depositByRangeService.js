@@ -48,61 +48,39 @@ export const TARGET_REGIONS = [
 
 const AMOUNT_DIVISOR = 1_000_000;
 
-/* ---------- Account-code buckets (same codes as MD002) ---------- */
-const DEMAND_CODES = [
-  '101',
-  '115','116','114','103','104','105','108','109','110','111','112','113',
-  '117','118','119','501','502','503','122','123','124','125','126','127',
-  '107',
-  '102',
-  '401','402','403','404','405','406','407','408','409','410','411','412','413',
-];
-
-const SAVING_CODES = [
-  '207','206','211','202','209','203','210','213','241','242',
-  '212','214','216','217','220','225','226','221','222','224',
-  '201','215','219','227','228','208','218','223','205','230',
-  '231','232','233','234','235','236','237','238','239','240',
-  '243','244','245','246','247','248','249','229',
-  '204',
-];
-
-const TIME_CODES = ['302', '303', '305', '301', '304'];
-
-const demandSqlList = DEMAND_CODES.map(c => `'${c}'`).join(',');
-const savingSqlList = SAVING_CODES.map(c => `'${c}'`).join(',');
-const timeSqlList   = TIME_CODES.map(c => `'${c}'`).join(',');
-
-/* ---------- Range definitions ----------
- * Ranges apply only to POSITIVE balances (> 0). Negative balances
- * (overdrafts, dormant, contra accounts) are excluded — same pattern
- * as MD002's "Other" bucket which uses "AND A.LCY_CLOSING_BAL > 0".
- */
-const RANGES = [
-  { key: 'RANGE1', cond: 'A.LCY_CLOSING_BAL > 0 AND A.LCY_CLOSING_BAL <= 100000' },
-  { key: 'RANGE2', cond: 'A.LCY_CLOSING_BAL > 100000 AND A.LCY_CLOSING_BAL <= 1000000' },
-  { key: 'RANGE3', cond: 'A.LCY_CLOSING_BAL > 1000000' },
-  { key: 'TOTAL',  cond: 'A.LCY_CLOSING_BAL > 0' },
-];
-
+/* ------------------------------------------------------------------ */
+/*  Classification — matches the reference SQL exactly.
+ *    ACCOUNT_TYPE values from STTM_CUST_ACCOUNT:
+ *      U → Demand / Current
+ *      S → Saving
+ *      Y → Term / Time Deposit
+ * ------------------------------------------------------------------ */
 const TYPES = [
-  { key: 'DEMAND', sqlList: demandSqlList },
-  { key: 'SAVING', sqlList: savingSqlList },
-  { key: 'TIME',   sqlList: timeSqlList   },
+  { key: 'DEMAND', acct: 'U' },
+  { key: 'SAVING', acct: 'S' },
+  { key: 'TIME',   acct: 'Y' },
 ];
 
-/* Build 36 SQL aggregate columns (3 types × 4 ranges × 3 metrics) */
+const RANGES = [
+  { key: 'RANGE1', band: 'UPTO_HUN'  },   // ≤ 100,000
+  { key: 'RANGE2', band: 'UPTO_MIL'  },   // > 100,000 and ≤ 1,000,000
+  { key: 'RANGE3', band: 'ABOVE_MIL' },   // > 1,000,000
+];
+
+/* Build 27 SQL aggregate columns (3 types × 3 ranges × 3 metrics).
+ * TOTAL is computed in JS as R1 + R2 + R3 (matches the reference SQL,
+ * where total is implicit and always equals the union of the 3 bands). */
 const sqlFields = [];
-for (const type of TYPES) {
-  for (const range of RANGES) {
+for (const t of TYPES) {
+  for (const r of RANGES) {
     sqlFields.push(
-      `SUM(CASE WHEN A.ACC_CODE IN (${type.sqlList}) AND ${range.cond} THEN A.LCY_CLOSING_BAL END) AS ${type.key}_${range.key}_AMOUNT`
+      `SUM(CASE WHEN A.ACCOUNT_TYPE = '${t.acct}' AND A.BAL_BAND = '${r.band}' THEN A.LCY_CLOSING_BAL END) AS ${t.key}_${r.key}_AMOUNT`
     );
     sqlFields.push(
-      `COUNT(DISTINCT CASE WHEN A.ACC_CODE IN (${type.sqlList}) AND ${range.cond} THEN SUBSTR(A.ACCOUNT,4,7) END) AS ${type.key}_${range.key}_DEPOSITORS`
+      `COUNT(DISTINCT CASE WHEN A.ACCOUNT_TYPE = '${t.acct}' AND A.BAL_BAND = '${r.band}' THEN SUBSTR(A.ACCOUNT,4,7) END) AS ${t.key}_${r.key}_DEPOSITORS`
     );
     sqlFields.push(
-      `COUNT(CASE WHEN A.ACC_CODE IN (${type.sqlList}) AND ${range.cond} THEN A.ACCOUNT END) AS ${type.key}_${range.key}_ACCOUNTS`
+      `COUNT(CASE WHEN A.ACCOUNT_TYPE = '${t.acct}' AND A.BAL_BAND = '${r.band}' THEN A.ACCOUNT END) AS ${t.key}_${r.key}_ACCOUNTS`
     );
   }
 }
@@ -153,29 +131,44 @@ export async function fetchDepositByRangeAndRegion(startDate, endDate) {
 
   const query = `
     WITH eligible_accounts AS (
-      SELECT C.CUST_AC_NO AS ACC
+      SELECT
+        C.CUST_AC_NO   AS ACC,
+        C.ACCOUNT_TYPE AS ACCOUNT_TYPE
       FROM FCUBSLIVE.STTM_CUST_ACCOUNT C
       WHERE C.RECORD_STAT = 'O'
          OR (C.RECORD_STAT = 'C'
              AND C.MAKER_DT_STAMP > TO_DATE(:endDate, 'DD-MON-YYYY'))
     ),
-    latest_dates AS (
-      SELECT A.ACCOUNT, MAX(A.BKG_DATE) AS BKG_DATE
-      FROM FCUBSLIVE.ACTB_ACCBAL_HISTORY A
-      JOIN eligible_accounts C ON C.ACC = A.ACCOUNT
-      WHERE A.BKG_DATE <= TO_DATE(:endDate, 'DD-MON-YYYY')
-      GROUP BY A.ACCOUNT
+    latest_balance AS (
+      SELECT
+        H.BRANCH_CODE,
+        H.ACCOUNT,
+        H.LCY_CLOSING_BAL,
+        E.ACCOUNT_TYPE,
+        ROW_NUMBER() OVER (
+          PARTITION BY H.ACCOUNT
+          ORDER BY H.BKG_DATE DESC
+        ) AS RN
+      FROM FCUBSLIVE.ACTB_ACCBAL_HISTORY H
+      JOIN eligible_accounts E ON E.ACC = H.ACCOUNT
+      WHERE H.BKG_DATE <= TO_DATE(:endDate, 'DD-MON-YYYY')
     ),
     base_data AS (
-      SELECT
-        A.BRANCH_CODE,
-        A.ACCOUNT,
-        A.LCY_CLOSING_BAL,
-        SUBSTR(A.ACCOUNT, 11, 3) AS ACC_CODE
-      FROM FCUBSLIVE.ACTB_ACCBAL_HISTORY A
-      JOIN latest_dates L
-        ON L.ACCOUNT = A.ACCOUNT AND L.BKG_DATE = A.BKG_DATE
-      WHERE A.BRANCH_CODE <> '000' and  A.BRANCH_CODE < '600'
+      SELECT /*+ MATERIALIZE */
+        L.BRANCH_CODE,
+        L.ACCOUNT,
+        L.LCY_CLOSING_BAL,
+        L.ACCOUNT_TYPE,
+        CASE
+          WHEN L.LCY_CLOSING_BAL <= 100000  THEN 'UPTO_HUN'
+          WHEN L.LCY_CLOSING_BAL <= 1000000 THEN 'UPTO_MIL'
+          ELSE 'ABOVE_MIL'
+        END AS BAL_BAND
+      FROM latest_balance L
+      WHERE L.RN = 1
+        AND L.BRANCH_CODE <> '000'
+        AND L.BRANCH_CODE < '600'
+        AND L.LCY_CLOSING_BAL >= 0
     )
     SELECT
       B.BRANCH_ADDR3 AS BREGION,
@@ -194,7 +187,8 @@ export async function fetchDepositByRangeAndRegion(startDate, endDate) {
     regionData[region] = emptyLocation();
   }
 
-  // Straight copy from SQL -> JS structure. No recomputation.
+  // Copy SQL -> JS structure.
+  // TOTAL is computed in JS as RANGE1 + RANGE2 + RANGE3 (mirrors the reference).
   for (const row of result.rows) {
     const rawRegion = String(row.BREGION || '').toUpperCase().trim();
     const region = REGION_NAME_MAP[rawRegion];
@@ -203,16 +197,34 @@ export async function fetchDepositByRangeAndRegion(startDate, endDate) {
     const urban = regionData[region].urban;
 
     for (const type of ['DEMAND', 'SAVING', 'TIME']) {
-      const typeKey = type.toLowerCase();           // demand / saving / time
-      for (const rangeKey of ['RANGE1', 'RANGE2', 'RANGE3', 'TOTAL']) {
+      const typeKey = type.toLowerCase();  // demand / saving / time
+
+      // Read the three bands from SQL
+      for (const rangeKey of ['RANGE1', 'RANGE2', 'RANGE3']) {
         const prefix = `${type}_${rangeKey}`;
-        const targetKey = rangeKey.toLowerCase();   // range1 / range2 / range3 / total
+        const targetKey = rangeKey.toLowerCase(); // range1 / range2 / range3
         urban[typeKey][targetKey] = {
           amount:     amt(row[`${prefix}_AMOUNT`]),
           depositors: cnt(row[`${prefix}_DEPOSITORS`]),
           accounts:   cnt(row[`${prefix}_ACCOUNTS`]),
         };
       }
+
+      // TOTAL = R1 + R2 + R3 (per metric)
+      urban[typeKey].total = {
+        amount:
+          urban[typeKey].range1.amount +
+          urban[typeKey].range2.amount +
+          urban[typeKey].range3.amount,
+        depositors:
+          urban[typeKey].range1.depositors +
+          urban[typeKey].range2.depositors +
+          urban[typeKey].range3.depositors,
+        accounts:
+          urban[typeKey].range1.accounts +
+          urban[typeKey].range2.accounts +
+          urban[typeKey].range3.accounts,
+      };
     }
   }
 
