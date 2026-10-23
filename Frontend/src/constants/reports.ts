@@ -31,7 +31,7 @@ export const REPORT_METADATA: Record<string, ReportMeta> = {
   },
   'CDby Sector and RegMD002': {
     key: 'CDby Sector and RegMD002',
-    name: 'Monthly Deposit by Sector and Region',
+    name: 'FASD Monthly Deposit by Sector and Region',
     description: 'Alternative deposit breakdown by sector and region',
     frequency: 'Monthly',
     isWeekly: false,
@@ -39,7 +39,7 @@ export const REPORT_METADATA: Record<string, ReportMeta> = {
   },
   'CDby Range and RegCM002': {
     key: 'CDby Range and RegCM002',
-    name: 'Monthly Deposit by Range and Region',
+    name: 'FASD Monthly Deposit by Range and Region',
     description: 'Deposit distribution by range and region',
     frequency: 'Monthly',
     isWeekly: false,
@@ -47,7 +47,7 @@ export const REPORT_METADATA: Record<string, ReportMeta> = {
   },
   NBE_20_DEP_MR001: {
     key: 'NBE_20_DEP_MR001',
-    name: 'Quarterly Top 20 Depositors',
+    name: 'BSD Quarterly Top Twenty (20) Depositors Report',
     description: 'Top 20 depositors for the quarter',
     frequency: 'Quarterly',
     isWeekly: false,
@@ -55,7 +55,7 @@ export const REPORT_METADATA: Record<string, ReportMeta> = {
   },
   'DIR RANGERD002': {
     key: 'DIR RANGERD002',
-    name: 'Monthly Interest Free Deposit by Range and Region',
+    name: 'FASD Monthly Interest Free Deposit by Range and Region',
     description: 'Interest Free Deposit distribution by range and region (IFB branches)',
     frequency: 'Monthly',
     isWeekly: false,
@@ -63,7 +63,7 @@ export const REPORT_METADATA: Record<string, ReportMeta> = {
   },
     DIFIF002: {
     key: 'DIFIF002',
-    name: 'Monthly Interest Free Deposit by Sector and Region',
+    name: 'FASD Monthly Interest Free Deposit by Sector and Region',
     description: 'Interest Free Deposit breakdown by sector and region (IFB branches)',
     frequency: 'Monthly',
     isWeekly: false,
@@ -71,7 +71,7 @@ export const REPORT_METADATA: Record<string, ReportMeta> = {
   },
     MB001MB001: {
     key: 'MB001MB001',
-    name: 'Monthly Balance Sheet',
+    name: 'BSD Monthly Balance Sheet',
     description: 'Monthly Balance Sheet for NBE reporting',
     frequency: 'Monthly',
     isWeekly: false,
@@ -109,7 +109,46 @@ export const REPORT_METADATA: Record<string, ReportMeta> = {
     isWeekly: false,
     dateMode: 'range',
   },
-
+    'QUA_ATM_POS_QP001': {
+    key: 'QUA_ATM_POS_QP001',
+    name: 'BSD Quarterly ATM and POS Report',
+    description: 'BSD Quarterly ATM and POS Report',
+    frequency: 'Quarterly',
+    isWeekly: false,
+    dateMode: 'range',
+  },
+    'INT_FRE_RANID002': {
+    key: 'INT_FRE_RANID002',
+    name: 'FASD Quarterly Interest Free Deposit by Range and Region',
+    description: 'Interest Free Deposit distribution by range and region (IFB branches) — Quarterly',
+    frequency: 'Quarterly',
+    isWeekly: false,
+    dateMode: 'range',
+  },
+  'DEP_RAN&REG_DR002': {
+    key: 'DEP_RAN&REG_DR002',
+    name: 'FASD Quarterly Deposit by Range and Region',
+    description: 'Conventional deposit distribution by range and region — Quarterly',
+    frequency: 'Quarterly',
+    isWeekly: false,
+    dateMode: 'range',
+  },
+    'INT_FRE_SECRI003': {
+    key: 'INT_FRE_SECRI003',
+    name: 'FASD Quarterly Interest Free Deposit by Sector and Region',
+    description: 'Quarterly Interest Free Deposit breakdown by sector and region (IFB branches)',
+    frequency: 'Quarterly',
+    isWeekly: false,
+    dateMode: 'range',
+  },
+   'DEP_SEC&REG_DS003': {
+    key: 'DEP_SEC&REG_DS003',
+    name: 'FASD Quarterly Deposit by Sector and Region',
+    description: 'Quarterly deposit breakdown by sector and region (conventional branches)',
+    frequency: 'Quarterly',
+    isWeekly: false,
+    dateMode: 'range',
+  },
 };
 
 export const REPORT_KEYS = Object.keys(REPORT_METADATA);

@@ -20,11 +20,49 @@ export const DATE_MODES = {
   CUSTOM: 'custom',
 };
 
+// ---------- date helpers ----------
+
 function startOfDay(d) {
   const x = new Date(d);
   x.setHours(0, 0, 0, 0);
   return x;
 }
+
+/** Local-time YYYY-MM-DD (never toISOString for date keys — it shifts by TZ). */
+function fmtDate(d) {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+/**
+ * Returns a Date at LOCAL NOON on the same calendar day.
+ *
+ * Why: some implementations of `isHoliday()` internally call `toISOString()`,
+ * which for Addis (UTC+3) local midnight lands on the *previous* UTC day.
+ * Using local noon guarantees toISOString() and any local formatter agree
+ * on the calendar date, so the holiday lookup is always for the right day.
+ */
+function atLocalNoon(d) {
+  const x = new Date(d);
+  x.setHours(12, 0, 0, 0);
+  return x;
+}
+
+/**
+ * "Working day" = today is NOT a holiday / weekly rest day.
+ * We rely on cbsService.isHoliday() as the single source of truth —
+ * it must already understand Ethiopian weekly rest days and public holidays
+ * (that's what getLastWorkingDayBefore uses too).
+ */
+async function isWorkingDay(d) {
+  const probe = atLocalNoon(d);
+  const hol = await isHoliday(probe);
+  return !hol;
+}
+
+// ---------- date range resolution ----------
 
 export async function resolveDateRange(schedule, now = new Date()) {
   const mode = schedule.date_mode || DATE_MODES.TODAY;
@@ -93,9 +131,8 @@ export async function resolveDateRange(schedule, now = new Date()) {
     }
 
     case DATE_MODES.CURRENT_QUARTER: {
-      // Quarter starts in Jan / Apr / Jul / Oct
-      const month = today.getMonth();                        // 0..11
-      const qStartMonth = Math.floor(month / 3) * 3;         // 0, 3, 6, 9
+      const month = today.getMonth();
+      const qStartMonth = Math.floor(month / 3) * 3;
       const start = new Date(today.getFullYear(), qStartMonth, 1);
       const end = new Date(today.getFullYear(), qStartMonth + 3, 0);
       return { startDate: start, endDate: end };
@@ -125,36 +162,67 @@ export async function resolveDateRange(schedule, now = new Date()) {
   }
 }
 
-export async function runSchedule(schedule) {
-  const { startDate, endDate } = await resolveDateRange(schedule);
-  const dateStr = `${startDate.toISOString().slice(0, 10)} → ${endDate.toISOString().slice(0, 10)}`;
+// ---------- run ----------
 
-  if (schedule.skip_holidays) {
-    const isHol = await isHoliday(startDate);
-    if (isHol) {
-      const msg = `Skipped: ${dateStr} is a holiday`;
-      logger.info(`📅 Schedule ${schedule.id} (${schedule.name}) skipped – holiday.`);
+/**
+ * @param {object} schedule - schedule row from DB
+ * @param {Date}   now      - current time (injectable for tests)
+ * @param {object} opts     - { force?: boolean }  skip the today-is-working-day gate
+ */
+export async function runSchedule(schedule, now = new Date(), opts = {}) {
+  const { force = false } = opts;
+  const today = startOfDay(now);
+
+  // ===== GATE (when skip_holidays is on): today must be a working day =====
+  // If today is a holiday / weekly rest day → do not run any report.
+  if (schedule.skip_holidays && !force) {
+    let working;
+    try {
+      working = await isWorkingDay(today);
+    } catch (err) {
+      // Fail SAFE: if we cannot determine whether today is a working day,
+      // do not submit a report against a possibly-closed business day.
+      const msg = `Skipped: could not verify working day for ${fmtDate(today)} (${err.message})`;
+      logger.error(`⚠️ Schedule ${schedule.id} (${schedule.name}) ${msg}`);
+      await scheduleModel.recordRun(schedule.id, 'skipped', msg);
+      return { status: 'skipped', message: msg };
+    }
+
+    if (!working) {
+      const msg = `Skipped: today (${fmtDate(today)}) is a non-working day`;
+      logger.info(
+        `📅 Schedule ${schedule.id} (${schedule.name}) skipped – ` +
+        `today (${fmtDate(today)}) is non-working.`
+      );
       await scheduleModel.recordRun(schedule.id, 'skipped', msg);
       return { status: 'skipped', message: msg };
     }
   }
 
+  // ===== Resolve what to submit (now that we know today is a working day) =====
+  const { startDate, endDate } = await resolveDateRange(schedule, now);
+  const rangeStr = `${fmtDate(startDate)} → ${fmtDate(endDate)}`;
+
+  // ===== Duplicate check =====
   const existing = await submissionModel.getSubmissionsByReportAndDateRange(
     schedule.report_key,
     startDate,
     endDate,
   );
-  const alreadySubmitted = existing.some(s => s.status !== 'failed' && s.status !== 'cancelled');
+  const alreadySubmitted = existing.some(
+    (s) => s.status !== 'failed' && s.status !== 'cancelled'
+  );
   if (alreadySubmitted) {
-    const msg = `Skipped: duplicate submission for ${dateStr}`;
+    const msg = `Skipped: duplicate submission for ${rangeStr}`;
     logger.info(`⏭️  Schedule ${schedule.id} (${schedule.name}) skipped – duplicate.`);
     await scheduleModel.recordRun(schedule.id, 'skipped', msg);
     return { status: 'skipped', message: msg };
   }
 
+  // ===== Submit =====
   try {
     await processReport(schedule.report_key, startDate, endDate);
-    const msg = `Submitted successfully for ${dateStr}`;
+    const msg = `Submitted successfully for ${rangeStr}`;
     logger.info(`✅ Schedule ${schedule.id} (${schedule.name}) succeeded.`);
     await scheduleModel.recordRun(schedule.id, 'success', msg);
     return { status: 'success', message: msg };
