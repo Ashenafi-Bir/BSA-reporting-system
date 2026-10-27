@@ -15,7 +15,7 @@ const CODE_PREFIX         = 'DS003_';
 /* Each block has 6 categories × 3 metrics = 18 codes */
 const CATEGORIES = ['pubEnt', 'private', 'gov', 'bank', 'other'];
 const CATEGORY_LABELS = {
-  pubEnt:  'Pub.  Enterprise',   // double space (matches JSON)
+  pubEnt:  'Pub.  Enterprise',
   private: 'Private & Coop.',
   gov:     'Regional Gov.',
   bank:    'Banks',
@@ -30,18 +30,17 @@ const METRIC_LABELS = {
   accounts:   '# of Accounts ',
 };
 
-/* Block order inside each region (matches JSON order) */
 const BLOCKS = [
-  { key: 'main',   prefix: '',        offset: 0   },
-  { key: 'demand', prefix: 'Demand_', offset: 18  },
-  { key: 'saving', prefix: 'Saving_', offset: 36  },
-  { key: 'time',   prefix: 'Time_',   offset: 54  },
-  { key: 'urban',  prefix: 'Urban_',  offset: 72  },
-  { key: 'rural',  prefix: 'Rural_',  offset: 90  },
+  { key: 'main',   prefix: '',        offset: 0  },
+  { key: 'demand', prefix: 'Demand_', offset: 18 },
+  { key: 'saving', prefix: 'Saving_', offset: 36 },
+  { key: 'time',   prefix: 'Time_',   offset: 54 },
+  { key: 'urban',  prefix: 'Urban_',  offset: 72 },
+  { key: 'rural',  prefix: 'Rural_',  offset: 90 },
 ];
 
 /* ------------------------------------------------------------------ */
-/*  Value calculation                                                  */
+/*  Value calculation (5 real sectors)                                 */
 /* ------------------------------------------------------------------ */
 function computeSectorValue(regionData, blockKey, category, metric) {
   if (!regionData) return 0;
@@ -126,7 +125,7 @@ export default {
           });
         });
 
-        // "Total" category = sum of the 5 sectors (reads from fieldMap)
+        // "Total" category column
         METRICS.forEach((metric, metricIdx) => {
           const code = `${CODE_PREFIX}${regionBase + block.offset + 5 * 3 + metricIdx}`;
           const description = block.prefix
@@ -138,6 +137,12 @@ export default {
             description,
             source: 'calculated',
             calculation: (fieldMap) => {
+              // MAIN block Total column comes straight from the SQL
+              // grand-total columns (Total_Balance / Total_Depositor / Total_Account).
+              if (block.key === 'main') {
+                return regionData?.grandTotal?.[metric] || 0;
+              }
+              // Other blocks: sum of the 5 sector codes
               let sum = 0;
               for (let i = 0; i < CATEGORIES.length; i++) {
                 const c = `${CODE_PREFIX}${regionBase + block.offset + i * 3 + metricIdx}`;

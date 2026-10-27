@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import { getSubmission, previewReport } from '../services/api';
 import dictionaryData from '../data/dictionary.json';
+import DynamicItemsView from '../components/DynamicItemsView';   // ← NEW
 
 type SortField = 'code' | 'value';
 type SortDirection = 'asc' | 'desc';
@@ -42,18 +43,16 @@ const SubmissionDetail: React.FC = () => {
     setPayloadLoading(true);
     try {
       if (submission.start_date && submission.end_date) {
-        // Use local timezone to extract the date part, ensuring it matches the user's selected date
         const start = new Date(submission.start_date).toLocaleDateString('en-CA');
         const end = new Date(submission.end_date).toLocaleDateString('en-CA');
         const dateParam = `${start}/${end}`;
-        console.log('Fetching payload with dateParam:', dateParam); // for debugging
         const response = await previewReport(submission.report_key, dateParam);
         setPayload(response);
         setShowPayload(true);
       } else {
         alert('No date range available for this submission');
       }
-    } catch (error) {
+    } catch {
       alert('Could not fetch payload');
     } finally {
       setPayloadLoading(false);
@@ -69,57 +68,53 @@ const SubmissionDetail: React.FC = () => {
     }
   };
 
-  // Build description map from dictionary for the current report
   const descriptionMap = useMemo(() => {
     const dict = (dictionaryData as any)[submission?.report_key] || { ReturnItemsList: [] };
     const map: Record<string, string> = {};
     (dict.ReturnItemsList || []).forEach((item: any) => {
-      if (item.Code && item._description) {
-        map[item.Code] = item._description;
-      }
+      if (item.Code && item._description) map[item.Code] = item._description;
     });
     return map;
   }, [submission?.report_key]);
 
+  const dictionaryDynamicAreas = useMemo(
+    () => (dictionaryData as any)[submission?.report_key]?.DynamicItemsList,
+    [submission?.report_key]
+  );
+
   const previewWithDesc = useMemo(() => {
     if (!payload?.ReturnItemsList) return [];
-
     let items = payload.ReturnItemsList.map((item: any) => ({
       ...item,
-      description: descriptionMap[item.Code] || 'No description'
+      description: descriptionMap[item.Code] || 'No description',
     }));
-
     if (!showZeroValues) {
-      items = items.filter(item => item.Value !== '0');
+      items = items.filter((item: any) => item.Value !== '0');
     }
-
     const compare = (a: any, b: any) => {
       let valA, valB;
       switch (sortField) {
         case 'code':
-          valA = a.Code;
-          valB = b.Code;
-          break;
+          valA = a.Code; valB = b.Code; break;
         case 'value':
-          valA = parseFloat(a.Value);
-          valB = parseFloat(b.Value);
+          valA = parseFloat(a.Value); valB = parseFloat(b.Value);
           if (isNaN(valA)) valA = a.Value;
           if (isNaN(valB)) valB = b.Value;
           break;
         default:
-          valA = a.Code;
-          valB = b.Code;
+          valA = a.Code; valB = b.Code;
       }
       if (valA < valB) return sortDirection === 'asc' ? -1 : 1;
       if (valA > valB) return sortDirection === 'asc' ? 1 : -1;
       return 0;
     };
-
     items.sort(compare);
     return items;
   }, [payload, descriptionMap, showZeroValues, sortField, sortDirection]);
 
   const totalFields = payload?.ReturnItemsList?.length || 0;
+  const hasDynamic =
+    !!payload?.DynamicItemsList && payload.DynamicItemsList.length > 0;
 
   if (loading) return <div>Loading...</div>;
   if (!submission) return <div>Submission not found</div>;
@@ -144,61 +139,38 @@ const SubmissionDetail: React.FC = () => {
         </div>
         <div className="card detail-card">
           <div className="detail-grid">
-            <div>
-              <label>Report</label>
-              <p>{submission.report_key}</p>
-            </div>
-            <div>
-              <label>Filename</label>
-              <p className="filename">{submission.filename || 'N/A'}</p>
-            </div>
-            <div>
-              <label>Submitted At</label>
-              <p>{new Date(submission.submitted_at).toLocaleString()}</p>
-            </div>
+            <div><label>Report</label><p>{submission.report_key}</p></div>
+            <div><label>Filename</label><p className="filename">{submission.filename || 'N/A'}</p></div>
+            <div><label>Submitted At</label><p>{new Date(submission.submitted_at).toLocaleString()}</p></div>
             <div>
               <label>Status</label>
               <p><span className={`badge ${getStatusBadge(submission.status)}`}>{submission.status}</span></p>
             </div>
-            <div>
-              <label>BSA Status</label>
-              <p>{submission.bsa_status || 'N/A'}</p>
-            </div>
-            <div>
-              <label>Start Date</label>
-              <p>{submission.start_date ? new Date(submission.start_date).toLocaleDateString() : 'N/A'}</p>
-            </div>
-            <div>
-              <label>End Date</label>
-              <p>{submission.end_date ? new Date(submission.end_date).toLocaleDateString() : 'N/A'}</p>
-            </div>
-            <div>
-              <label>Response</label>
-              <p className="truncate">{submission.response ? 'Yes' : 'No'}</p>
-            </div>
+            <div><label>BSA Status</label><p>{submission.bsa_status || 'N/A'}</p></div>
+            <div><label>Start Date</label><p>{submission.start_date ? new Date(submission.start_date).toLocaleDateString() : 'N/A'}</p></div>
+            <div><label>End Date</label><p>{submission.end_date ? new Date(submission.end_date).toLocaleDateString() : 'N/A'}</p></div>
+            <div><label>Response</label><p className="truncate">{submission.response ? 'Yes' : 'No'}</p></div>
           </div>
+
           {submission.error && (
             <div className="error-box">
               <label>Error</label>
               <pre>{submission.error}</pre>
             </div>
           )}
+
           <div className="detail-actions">
             <button className="btn btn-primary" onClick={handleViewPayload} disabled={payloadLoading}>
               {payloadLoading ? 'Loading...' : 'View Payload'}
             </button>
-            {/* {submission.filename && (
-              <button className="btn btn-secondary" onClick={() => alert('Check status from history page')}>
-                Check Status
-              </button>
-            )} */}
           </div>
 
           {showPayload && payload && (
             <div className="payload-view">
+              {/* Return Items */}
               <div className="payload-header">
                 <h4>
-                  Payload Preview – <span>{previewWithDesc.length}</span> / {totalFields} fields
+                  Return Items — <span>{previewWithDesc.length}</span> / {totalFields} fields
                 </h4>
                 <div className="payload-controls">
                   <button
@@ -249,6 +221,21 @@ const SubmissionDetail: React.FC = () => {
               <div className="table-footer">
                 Showing {previewWithDesc.length} of {totalFields} fields.
               </div>
+
+              {/* ---------- Dynamic Items ---------- */}
+              {hasDynamic && (
+                <div className="dynamic-section">
+                  <h4 style={{ marginTop: '1.5rem', marginBottom: '0.75rem' }}>
+                    Dynamic Items — {payload.DynamicItemsList.length} area
+                    {payload.DynamicItemsList.length !== 1 ? 's' : ''}
+                  </h4>
+                  <DynamicItemsView
+                    items={payload.DynamicItemsList}
+                    dictionary={dictionaryDynamicAreas}
+                    showZeroValues={showZeroValues}
+                  />
+                </div>
+              )}
             </div>
           )}
         </div>

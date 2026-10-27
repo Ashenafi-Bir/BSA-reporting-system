@@ -114534,5 +114534,862 @@
       }
     ],
     "DynamicItemsList": []
-  }
+  },"TWE_SHA_STR_TH001":{
+  "ReturnKey": "TWE_SHA_STR_TH001",
+  "InstCode": "0000017",
+  "FinYear": 2026,
+  "StartDate": "2026-07-01T00:00:00",
+  "EndDate": "2026-09-30T00:00:00",
+  "ReturnItemsList": [
+    {
+      "Code": "70_00001",
+      "Value": "",
+      "_description": "Sub-total_Subscribed share",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00002",
+      "Value": "",
+      "_description": "Sub-total_Paid-up share",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00005",
+      "Value": "",
+      "_description": "The remaining shares all together_Subscribed share",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00006",
+      "Value": "",
+      "_description": "The remaining shares all together_Paid-up share",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00009",
+      "Value": "",
+      "_description": "Grand total_Subscribed share",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00010",
+      "Value": "",
+      "_description": "Grand total_Paid-up share",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00013",
+      "Value": "",
+      "_description": "Name of shareholder_1",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00014",
+      "Value": "",
+      "_description": "Name of shareholder_2",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00015",
+      "Value": "",
+      "_description": "Name of shareholder_3",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00016",
+      "Value": "",
+      "_description": "Name of shareholder_4",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00017",
+      "Value": "",
+      "_description": "Name of shareholder_5",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00018",
+      "Value": "",
+      "_description": "Name of shareholder_6",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00019",
+      "Value": "",
+      "_description": "Name of shareholder_7",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00020",
+      "Value": "",
+      "_description": "Name of shareholder_8",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00021",
+      "Value": "",
+      "_description": "Name of shareholder_9",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00022",
+      "Value": "",
+      "_description": "Name of shareholder_10",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00023",
+      "Value": "",
+      "_description": "Name of shareholder_11",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00024",
+      "Value": "",
+      "_description": "Name of shareholder_12",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00025",
+      "Value": "",
+      "_description": "Name of shareholder_13",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00026",
+      "Value": "",
+      "_description": "Name of shareholder_14",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00027",
+      "Value": "",
+      "_description": "Name of shareholder_15",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00028",
+      "Value": "",
+      "_description": "Name of shareholder_16",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00029",
+      "Value": "",
+      "_description": "Name of shareholder_17",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00030",
+      "Value": "",
+      "_description": "Name of shareholder_18",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00031",
+      "Value": "",
+      "_description": "Name of shareholder_19",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00032",
+      "Value": "",
+      "_description": "Name of shareholder_20",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00033",
+      "Value": "",
+      "_description": "Subscribed share_1",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00034",
+      "Value": "",
+      "_description": "Subscribed share_2",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00035",
+      "Value": "",
+      "_description": "Subscribed share_3",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00036",
+      "Value": "",
+      "_description": "Subscribed share_4",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00037",
+      "Value": "",
+      "_description": "Subscribed share_5",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00038",
+      "Value": "",
+      "_description": "Subscribed share_6",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00039",
+      "Value": "",
+      "_description": "Subscribed share_7",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00040",
+      "Value": "",
+      "_description": "Subscribed share_8",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00041",
+      "Value": "",
+      "_description": "Subscribed share_9",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00042",
+      "Value": "",
+      "_description": "Subscribed share_10",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00043",
+      "Value": "",
+      "_description": "Subscribed share_11",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00044",
+      "Value": "",
+      "_description": "Subscribed share_12",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00045",
+      "Value": "",
+      "_description": "Subscribed share_13",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00046",
+      "Value": "",
+      "_description": "Subscribed share_14",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00047",
+      "Value": "",
+      "_description": "Subscribed share_15",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00048",
+      "Value": "",
+      "_description": "Subscribed share_16",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00049",
+      "Value": "",
+      "_description": "Subscribed share_17",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00050",
+      "Value": "",
+      "_description": "Subscribed share_18",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00051",
+      "Value": "",
+      "_description": "Subscribed share_19",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00052",
+      "Value": "",
+      "_description": "Subscribed share_20",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00053",
+      "Value": "",
+      "_description": "Paid-up share_1",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00054",
+      "Value": "",
+      "_description": "Paid-up share_2",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00055",
+      "Value": "",
+      "_description": "Paid-up share_3",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00056",
+      "Value": "",
+      "_description": "Paid-up share_4",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00057",
+      "Value": "",
+      "_description": "Paid-up share_5",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00058",
+      "Value": "",
+      "_description": "Paid-up share_6",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00059",
+      "Value": "",
+      "_description": "Paid-up share_7",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00060",
+      "Value": "",
+      "_description": "Paid-up share_8",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00061",
+      "Value": "",
+      "_description": "Paid-up share_9",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00062",
+      "Value": "",
+      "_description": "Paid-up share_10",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00063",
+      "Value": "",
+      "_description": "Paid-up share_11",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00064",
+      "Value": "",
+      "_description": "Paid-up share_12",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00065",
+      "Value": "",
+      "_description": "Paid-up share_13",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00066",
+      "Value": "",
+      "_description": "Paid-up share_14",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00067",
+      "Value": "",
+      "_description": "Paid-up share_15",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00068",
+      "Value": "",
+      "_description": "Paid-up share_16",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00069",
+      "Value": "",
+      "_description": "Paid-up share_17",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00070",
+      "Value": "",
+      "_description": "Paid-up share_18",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00071",
+      "Value": "",
+      "_description": "Paid-up share_19",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00072",
+      "Value": "",
+      "_description": "Paid-up share_20",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00073",
+      "Value": "",
+      "_description": "% of Paid-up share_1",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00074",
+      "Value": "",
+      "_description": "% of Paid-up share_2",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00075",
+      "Value": "",
+      "_description": "% of Paid-up share_3",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00076",
+      "Value": "",
+      "_description": "% of Paid-up share_4",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00077",
+      "Value": "",
+      "_description": "% of Paid-up share_5",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00078",
+      "Value": "",
+      "_description": "% of Paid-up share_6",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00079",
+      "Value": "",
+      "_description": "% of Paid-up share_7",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00080",
+      "Value": "",
+      "_description": "% of Paid-up share_8",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00081",
+      "Value": "",
+      "_description": "% of Paid-up share_9",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00082",
+      "Value": "",
+      "_description": "% of Paid-up share_10",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00083",
+      "Value": "",
+      "_description": "% of Paid-up share_11",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00084",
+      "Value": "",
+      "_description": "% of Paid-up share_12",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00085",
+      "Value": "",
+      "_description": "% of Paid-up share_13",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00086",
+      "Value": "",
+      "_description": "% of Paid-up share_14",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00087",
+      "Value": "",
+      "_description": "% of Paid-up share_15",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00088",
+      "Value": "",
+      "_description": "% of Paid-up share_16",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00089",
+      "Value": "",
+      "_description": "% of Paid-up share_17",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00090",
+      "Value": "",
+      "_description": "% of Paid-up share_18",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00091",
+      "Value": "",
+      "_description": "% of Paid-up share_19",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00092",
+      "Value": "",
+      "_description": "% of Paid-up share_20",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00093",
+      "Value": "",
+      "_description": "% of Subscribed share_2",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00094",
+      "Value": "",
+      "_description": "% of Subscribed share_3",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00095",
+      "Value": "",
+      "_description": "% of Subscribed share_4",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00096",
+      "Value": "",
+      "_description": "% of Subscribed share_5",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00097",
+      "Value": "",
+      "_description": "% of Subscribed share_6",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00098",
+      "Value": "",
+      "_description": "% of Subscribed share_7",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00099",
+      "Value": "",
+      "_description": "% of Subscribed share_8",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00100",
+      "Value": "",
+      "_description": "% of Subscribed share_9",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00101",
+      "Value": "",
+      "_description": "% of Subscribed share_10",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00102",
+      "Value": "",
+      "_description": "% of Subscribed share_11",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00103",
+      "Value": "",
+      "_description": "% of Subscribed share_12",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00104",
+      "Value": "",
+      "_description": "% of Subscribed share_13",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00105",
+      "Value": "",
+      "_description": "% of Subscribed share_14",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00106",
+      "Value": "",
+      "_description": "% of Subscribed share_15",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00107",
+      "Value": "",
+      "_description": "% of Subscribed share_16",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00108",
+      "Value": "",
+      "_description": "% of Subscribed share_17",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00109",
+      "Value": "",
+      "_description": "% of Subscribed share_18",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00110",
+      "Value": "",
+      "_description": "% of Subscribed share_19",
+      "_dataType": "NUMERIC",
+      "_required": false
+    },
+    {
+      "Code": "70_00111",
+      "Value": "",
+      "_description": "% of Subscribed share_20",
+      "_dataType": "NUMERIC",
+      "_required": false
+    }
+  ],
+  "DynamicItemsList": [
+    {
+      "Area": 161,
+      "_areaName": null,
+      "DynamicItems": [
+        {
+          "Code": "1.1",
+          "Value": "",
+          "_description": "S.No",
+          "_dataType": "NUMERIC",
+          "_required": false
+        },
+        {
+          "Code": "1.2",
+          "Value": "",
+          "_description": "Name of shareholder",
+          "_dataType": "TEXT",
+          "_required": false
+        },
+        {
+          "Code": "1.3",
+          "Value": "",
+          "_description": "Subscribed share",
+          "_dataType": "NUMERIC",
+          "_required": false
+        },
+        {
+          "Code": "1.4",
+          "Value": "",
+          "_description": "Paid-up share",
+          "_dataType": "NUMERIC",
+          "_required": false
+        },
+        {
+          "Code": "1.5",
+          "Value": "",
+          "_description": "% of Paid-up share ",
+          "_dataType": "NUMERIC",
+          "_required": false
+        },
+        {
+          "Code": "1.6",
+          "Value": "",
+          "_description": "% of Subscribed capital",
+          "_dataType": "NUMERIC",
+          "_required": false
+        }
+      ]
+    }
+  ]
+},"SHR_GTR_2_TS001":{
+  "ReturnKey": "SHR_GTR_2_TS001",
+  "InstCode": "0000017",
+  "FinYear": 2026,
+  "StartDate": "2026-07-01T00:00:00",
+  "EndDate": "2026-09-30T00:00:00",
+  "ReturnItemsList": [],
+  "DynamicItemsList": [
+    {
+      "Area": 180,
+      "_areaName": null,
+      "DynamicItems": [
+        {
+          "Code": "1.1",
+          "Value": "",
+          "_description": "Name of Shareholder",
+          "_dataType": "TEXT",
+          "_required": false
+        },
+        {
+          "Code": "1.2",
+          "Value": "",
+          "_description": "Par Value of  a share (A)",
+          "_dataType": "TEXT",
+          "_required": false
+        },
+        {
+          "Code": "1.3",
+          "Value": "",
+          "_description": "Number of Shares Subscribed (B)",
+          "_dataType": "NUMERIC",
+          "_required": false
+        },
+        {
+          "Code": "1.4",
+          "Value": "",
+          "_description": "Number of Shares Paid (C)",
+          "_dataType": "NUMERIC",
+          "_required": false
+        },
+        {
+          "Code": "1.5",
+          "Value": "",
+          "_description": "Value of Shares Subscribed (D=AXB)",
+          "_dataType": "NUMERIC",
+          "_required": false
+        },
+        {
+          "Code": "1.6",
+          "Value": "",
+          "_description": "Value of Shares Paid (E=AxC)",
+          "_dataType": "NUMERIC",
+          "_required": false
+        },
+        {
+          "Code": "1.7",
+          "Value": "",
+          "_description": "Percent of Banks Total Subscribed  Shares",
+          "_dataType": "NUMERIC",
+          "_required": false
+        }
+      ]
+    }
+  ]
+}
 }

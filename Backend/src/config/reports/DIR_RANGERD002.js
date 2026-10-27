@@ -6,11 +6,10 @@ import {
 /* ------------------------------------------------------------------ */
 /*  Code layout (from the JSON dictionary)                             */
 /* ------------------------------------------------------------------ */
-const BASE_CODE           = 52352;   // first code of Addis Ababa
-const CODES_PER_REGION    = 96;      // 8 blocks × 4 ranges × 3 metrics
-const TOTAL_DEPOSITS_BASE = 53696;   // "Total Deposits" block
+const BASE_CODE           = 52352;
+const CODES_PER_REGION    = 96;
+const TOTAL_DEPOSITS_BASE = 53696;
 
-/* Categories within each block: R1, R2, R3, Total */
 const CATEGORIES = [
   { key: 'range1', label: '  <= Birr 100,000 ',       offset: 0, isTotal: false },
   { key: 'range2', label: '>Birr 100,000-1million ',  offset: 3, isTotal: false },
@@ -18,7 +17,6 @@ const CATEGORIES = [
   { key: 'total',  label: 'Total  ',                  offset: 9, isTotal: true  },
 ];
 
-/* Blocks inside each region */
 const BLOCKS = [
   { key: 'main',         prefix: '',                                    offset: 0,  timeLabel: null },
   { key: 'demand',       prefix: 'Demand_',                             offset: 12, timeLabel: null },
@@ -37,8 +35,6 @@ const METRIC_LABELS = {
   accounts:   '# of Accounts ',
 };
 
-/* ------------------------------------------------------------------ */
-/*  Value extraction from the raw data structure                       */
 /* ------------------------------------------------------------------ */
 function computeBlockValue(regionData, blockKey, rangeKey, metric) {
   if (!regionData) return 0;
@@ -79,7 +75,6 @@ export default {
   finYear:   new Date().getFullYear(),
   dataFetcher: fetchDepositByRangeIFB,
 
-  // Full template must be sent (Rural block, Restricted & Unrestricted are zero)
   includeZeroValues: true,
 
   prepare(rawData) {
@@ -96,7 +91,6 @@ export default {
       const regionData = rawData[region];
 
       BLOCKS.forEach(block => {
-        // Resolve the prefix (some blocks have a region-specific number like 1.3.1+1.3.2)
         const prefix = block.timeLabel
           ? `Time (${regionIdx + 1}.3.1+${regionIdx + 1}.3.2)_`
           : block.prefix;
@@ -109,7 +103,20 @@ export default {
               : `${region}_${cat.label}_${METRIC_LABELS[metric]}`;
 
             if (cat.isTotal) {
-              // Total = R1 + R2 + R3 (from fieldMap, per block)
+              // MAIN block Total — use the SQL grand-total columns
+              // (Total_Balance / Total_Depositor / Total_Account).
+              if (block.key === 'main') {
+                fields.push({
+                  code,
+                  description,
+                  source: 'calculated',
+                  calculation: () =>
+                    regionData?.grandTotal?.[metric] || 0,
+                });
+                return;
+              }
+
+              // Other blocks' Total = R1 + R2 + R3 (per block)
               fields.push({
                 code,
                 description,
@@ -144,21 +151,22 @@ export default {
         const description = `Total Deposits_${cat.label}_${METRIC_LABELS[metric]}`;
 
         if (cat.isTotal) {
+          // Sum the SQL grand totals across all regions
           fields.push({
             code,
             description,
             source: 'calculated',
-            calculation: (fieldMap) => {
+            calculation: () => {
               let sum = 0;
-              for (let ri = 0; ri < 3; ri++) {
-                const c = `RD002_${TOTAL_DEPOSITS_BASE + ri * 3 + metricIdx}`;
-                sum += parseFloat(fieldMap[c] || 0);
-              }
+              TARGET_REGIONS.forEach((r) => {
+                const gt = rawData[r]?.grandTotal;
+                if (gt) sum += gt[metric] || 0;
+              });
               return sum;
             },
           });
         } else {
-          // Sum across all 14 regions using the region's Main block
+          // Non-total rows: sum the corresponding range across all regions
           fields.push({
             code,
             description,

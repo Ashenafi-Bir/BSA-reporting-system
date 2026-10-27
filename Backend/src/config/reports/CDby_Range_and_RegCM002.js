@@ -7,12 +7,11 @@ const BASE_CODE           = 46232;
 const CODES_PER_REGION    = 72;
 const TOTAL_DEPOSITS_BASE = 47240;
 
-/* Categories within each block: R1, R2, R3, Total  (all 4 come from SQL now) */
 const CATEGORIES = [
-  { key: 'range1', label: '  <= Birr 100,000 ',      offset: 0, isTotal: false },
-  { key: 'range2', label: '>Birr 100,000-1million ', offset: 3, isTotal: false },
-  { key: 'range3', label: '> Birr 1 million ',       offset: 6, isTotal: false },
-  { key: 'total',  label: 'Total  ',                 offset: 9, isTotal: false }, // <- read from SQL, not computed
+  { key: 'range1', label: '  <= Birr 100,000 ',      offset: 0 },
+  { key: 'range2', label: '>Birr 100,000-1million ', offset: 3 },
+  { key: 'range3', label: '> Birr 1 million ',       offset: 6 },
+  { key: 'total',  label: 'Total  ',                 offset: 9 },
 ];
 
 const BLOCKS = [
@@ -34,6 +33,12 @@ const METRIC_LABELS = {
 /* ------------------------------------------------------------------ */
 function computeRangeValue(regionData, blockKey, rangeKey, metric) {
   if (!regionData) return 0;
+
+  // Main block TOTAL — pulled straight from the SQL grand-total columns
+  // (Total_Balance / Total_Depositor / Total_Account). Not recomputed in JS.
+  if (blockKey === 'main' && rangeKey === 'total') {
+    return regionData.grandTotal ? (regionData.grandTotal[metric] || 0) : 0;
+  }
 
   const pick = (loc, sub) => {
     const r = regionData[loc] && regionData[loc][sub] && regionData[loc][sub][rangeKey];
@@ -87,7 +92,6 @@ export default {
               ? `${region}_${block.prefix}${cat.label}_${METRIC_LABELS[metric]}`
               : `${region}_${cat.label}_${METRIC_LABELS[metric]}`;
 
-            // Everything is copied from the SQL response — no recalculation
             fields.push({
               code,
               description,

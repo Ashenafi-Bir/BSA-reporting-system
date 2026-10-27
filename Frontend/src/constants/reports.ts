@@ -149,6 +149,22 @@ export const REPORT_METADATA: Record<string, ReportMeta> = {
     isWeekly: false,
     dateMode: 'range',
   },
+    TWE_SHA_STR_TH001: {
+    key: 'TWE_SHA_STR_TH001',
+    name: 'Quarterly Top 20 Shareholding Structure',
+    description: 'Top 20 shareholders by paid-up capital (quarterly)',
+    frequency: 'Quarterly',
+    isWeekly: false,
+    dateMode: 'range',
+  },
+  SHR_GTR_2_TS001: {
+  key: 'SHR_GTR_2_TS001',
+  name: 'BSD Quarterly ≥2% Shareholding Structure',
+  description: 'Report on Two Percent (2%) and above Shareholdings of the Bank\'s Total Share Capital',
+  frequency: 'Quarterly',
+  isWeekly: false,
+  dateMode: 'range',
+},
 };
 
 export const REPORT_KEYS = Object.keys(REPORT_METADATA);

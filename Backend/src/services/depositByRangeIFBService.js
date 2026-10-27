@@ -61,6 +61,7 @@ const emptyAccountType = () => ({
 const emptyLocation = () => ({
   urban: emptyAccountType(),
   rural: emptyAccountType(),
+  grandTotal: emptyMetric(),   // <— read from SQL Total_Balance / Total_Depositor / Total_Account
 });
 
 function num(v) {
@@ -85,51 +86,52 @@ export async function fetchDepositByRangeIFB(startDate, endDate) {
   const endDateStr = formatOracleDate(endDate);
   logger.info(`Fetching IFB Deposit by Range & Region data up to ${endDateStr}`);
 
+  /* Matches the reference query exactly (same filter, same grand-total block). */
   const query = `
     WITH eligible_accounts AS (
       SELECT
-        C.CUST_AC_NO AS ACC,
+        C.CUST_AC_NO,
         C.ACCOUNT_TYPE
       FROM FCUBSLIVE.STTM_CUST_ACCOUNT C
       WHERE C.RECORD_STAT = 'O'
          OR (C.RECORD_STAT = 'C'
-             AND C.MAKER_DT_STAMP > TO_DATE(:endDate, 'DD-MON-YYYY'))
+             AND C.MAKER_DT_STAMP > TO_DATE(:endDate, 'DD-MON-YYYY') + 1)
     ),
-    account_latest_balance AS (
+    latest_balance AS (
       SELECT
-        A.BRANCH_CODE,
-        A.ACCOUNT,
-        A.BKG_DATE,
-        A.LCY_CLOSING_BAL,
-        C.ACCOUNT_TYPE,
+        H.BRANCH_CODE,
+        H.ACCOUNT,
+        H.LCY_CLOSING_BAL,
+        E.ACCOUNT_TYPE,
         ROW_NUMBER() OVER (
-          PARTITION BY A.ACCOUNT
-          ORDER BY A.BKG_DATE DESC
+          PARTITION BY H.ACCOUNT
+          ORDER BY H.BKG_DATE DESC
         ) AS RN
-      FROM FCUBSLIVE.ACTB_ACCBAL_HISTORY A
-      JOIN eligible_accounts C ON C.ACC = A.ACCOUNT
-      WHERE A.BKG_DATE <= TO_DATE(:endDate, 'DD-MON-YYYY')
+      FROM FCUBSLIVE.ACTB_ACCBAL_HISTORY H
+      JOIN eligible_accounts E
+        ON E.CUST_AC_NO = H.ACCOUNT
+      WHERE H.BKG_DATE <= TO_DATE(:endDate, 'DD-MON-YYYY')
     ),
     base_data AS (
-      SELECT
-        A.BRANCH_CODE,
-        A.ACCOUNT,
-        A.BKG_DATE,
-        A.LCY_CLOSING_BAL,
-        A.ACCOUNT_TYPE,
+      SELECT /*+ MATERIALIZE */
+        L.BRANCH_CODE,
+        L.ACCOUNT,
+        L.LCY_CLOSING_BAL,
+        L.ACCOUNT_TYPE,
         CASE
-          WHEN A.LCY_CLOSING_BAL <= 100000  THEN 'UPTO_HUN'
-          WHEN A.LCY_CLOSING_BAL <= 1000000 THEN 'UPTO_MIL'
+          WHEN L.LCY_CLOSING_BAL <= 100000  THEN 'UPTO_HUN'
+          WHEN L.LCY_CLOSING_BAL <= 1000000 THEN 'UPTO_MIL'
           ELSE 'ABOVE_MIL'
         END AS BAL_BAND
-      FROM account_latest_balance A
-      WHERE A.RN = 1
-        AND A.BRANCH_CODE > '600'
-        AND A.LCY_CLOSING_BAL >= 0
+      FROM latest_balance L
+      WHERE L.RN = 1
+        AND L.BRANCH_CODE <> '000'
+        AND L.BRANCH_CODE > '600'
+        AND L.LCY_CLOSING_BAL > 0
     )
     SELECT
       B.BRANCH_ADDR3 AS BREGION,
-      'Urban' as "Urban/Rural",
+      'Urban' AS "Urban/Rural",
 
       /* DEMAND - U */
       SUM(CASE WHEN A.ACCOUNT_TYPE = 'U' AND A.BAL_BAND = 'UPTO_HUN'
@@ -195,7 +197,16 @@ export async function fetchDepositByRangeIFB(startDate, endDate) {
       COUNT(DISTINCT CASE WHEN A.ACCOUNT_TYPE = 'Y' AND A.BAL_BAND = 'ABOVE_MIL'
                           THEN SUBSTR(A.ACCOUNT,4,7) END) AS TD_Above_Million_Depositor,
       COUNT(CASE WHEN A.ACCOUNT_TYPE = 'Y' AND A.BAL_BAND = 'ABOVE_MIL'
-                 THEN A.ACCOUNT END) AS TD_Above_Million_Account
+                 THEN A.ACCOUNT END) AS TD_Above_Million_Account,
+
+      /* GRAND TOTAL — reference query block, verbatim */
+      SUM(CASE WHEN A.ACCOUNT_TYPE IN ('Y','S','U')
+               THEN A.LCY_CLOSING_BAL ELSE 0 END) AS TOTAL_BALANCE,
+      COUNT(DISTINCT CASE WHEN A.ACCOUNT_TYPE IN ('Y','S','U')
+                          THEN SUBSTR(A.ACCOUNT,4,7) END) AS TOTAL_DEPOSITOR,
+      COUNT(CASE WHEN A.ACCOUNT_TYPE IN ('Y','S','U')
+                 THEN A.ACCOUNT END) AS TOTAL_ACCOUNT
+
     FROM base_data A
     JOIN FCUBSLIVE.STTM_BRANCH B ON B.BRANCH_CODE = A.BRANCH_CODE
     GROUP BY B.BRANCH_ADDR3
@@ -264,15 +275,21 @@ export async function fetchDepositByRangeIFB(startDate, endDate) {
     };
     urban.time.range3 = {
       amount:     amt(row.TD_ABOVE_MILLION),
-      // ✅ Fixed: reference uses TD_Above_Million_Depositor (not TTD)
       depositors: cnt(row.TD_ABOVE_MILLION_DEPOSITOR),
-      // ✅ Fixed: reference uses TD_Above_Million_Account (not _Count)
       accounts:   cnt(row.TD_ABOVE_MILLION_ACCOUNT),
+    };
+
+    // ---- GRAND TOTAL — read directly from SQL ----
+    regionData[region].grandTotal = {
+      amount:     amt(row.TOTAL_BALANCE),
+      depositors: cnt(row.TOTAL_DEPOSITOR),
+      accounts:   cnt(row.TOTAL_ACCOUNT),
     };
   }
 
   logger.info(
-    `Fetched IFB Deposit-by-Range data for ${Object.keys(regionData).length} regions (amounts in Millions of Birr).`
+    `Fetched IFB Deposit-by-Range data for ${Object.keys(regionData).length} regions ` +
+    `(amounts in Millions of Birr).`
   );
   return regionData;
 }

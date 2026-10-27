@@ -141,7 +141,7 @@ export default {
           });
         });
 
-        // "Total" category per block = sum of the 5 real sectors (via fieldMap)
+        // "Total" category per block
         METRICS.forEach((metric, metricIdx) => {
           const code = `IF002_${regionBase + block.offset + 5 * 3 + metricIdx}`;
           const description = prefix
@@ -153,6 +153,12 @@ export default {
             description,
             source: 'calculated',
             calculation: (fieldMap) => {
+              // MAIN block Total — use the SQL grand-total columns
+              // (Total_Balance / Total_Depositor / Total_Account).
+              if (block.key === 'main') {
+                return regionData?.grandTotal?.[metric] || 0;
+              }
+              // Other blocks: sum of the 5 sector codes
               let sum = 0;
               for (let i = 0; i < CATEGORIES.length; i++) {
                 const c = `IF002_${regionBase + block.offset + i * 3 + metricIdx}`;
@@ -189,7 +195,7 @@ export default {
       });
     });
 
-    // Total Deposits — Total column = sum of 5 categories (per metric)
+    // Total Deposits — Total column: sum the SQL grand totals across regions
     METRICS.forEach((metric, metricIdx) => {
       const code = `IF002_${TOTAL_DEPOSITS_BASE + 5 * 3 + metricIdx}`;
       const description = `Total Deposits_${CATEGORY_LABELS.total}_${METRIC_LABELS[metric]}`;
@@ -198,12 +204,12 @@ export default {
         code,
         description,
         source: 'calculated',
-        calculation: (fieldMap) => {
+        calculation: () => {
           let sum = 0;
-          for (let catIdx = 0; catIdx < CATEGORIES.length; catIdx++) {
-            const c = `IF002_${TOTAL_DEPOSITS_BASE + catIdx * 3 + metricIdx}`;
-            sum += parseFloat(fieldMap[c] || 0);
-          }
+          TARGET_REGIONS.forEach((r) => {
+            const gt = rawData[r]?.grandTotal;
+            if (gt) sum += gt[metric] || 0;
+          });
           return sum;
         },
       });

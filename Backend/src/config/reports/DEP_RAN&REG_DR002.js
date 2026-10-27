@@ -7,16 +7,15 @@ import {
 /*  Code layout (from the DR002 JSON dictionary — Quarterly)           */
 /* ------------------------------------------------------------------ */
 const CODE_PREFIX         = 'DR002';
-const BASE_CODE           = 34682;   // first code of Addis Ababa
-const CODES_PER_REGION    = 72;      // 6 blocks × 4 ranges × 3 metrics
-const TOTAL_DEPOSITS_BASE = 35690;   // "Total Deposits" block
+const BASE_CODE           = 34682;
+const CODES_PER_REGION    = 72;
+const TOTAL_DEPOSITS_BASE = 35690;
 
-/* Categories within each block: R1, R2, R3, Total  (all 4 come from SQL/service) */
 const CATEGORIES = [
-  { key: 'range1', label: '  <= Birr 100,000 ',      offset: 0, isTotal: false },
-  { key: 'range2', label: '>Birr 100,000-1million ', offset: 3, isTotal: false },
-  { key: 'range3', label: '> Birr 1 million ',       offset: 6, isTotal: false },
-  { key: 'total',  label: 'Total  ',                 offset: 9, isTotal: false },
+  { key: 'range1', label: '  <= Birr 100,000 ',      offset: 0 },
+  { key: 'range2', label: '>Birr 100,000-1million ', offset: 3 },
+  { key: 'range3', label: '> Birr 1 million ',       offset: 6 },
+  { key: 'total',  label: 'Total  ',                 offset: 9 },
 ];
 
 const BLOCKS = [
@@ -36,10 +35,14 @@ const METRIC_LABELS = {
 };
 
 /* ------------------------------------------------------------------ */
-/*  Value extraction from the raw data structure                       */
-/* ------------------------------------------------------------------ */
 function computeRangeValue(regionData, blockKey, rangeKey, metric) {
   if (!regionData) return 0;
+
+  // Main block TOTAL — pulled straight from the SQL grand-total columns
+  // (Total_Balance / Total_Depositor / Total_Account). Not recomputed in JS.
+  if (blockKey === 'main' && rangeKey === 'total') {
+    return regionData.grandTotal ? (regionData.grandTotal[metric] || 0) : 0;
+  }
 
   const pick = (loc, sub) => {
     const r = regionData[loc] && regionData[loc][sub] && regionData[loc][sub][rangeKey];

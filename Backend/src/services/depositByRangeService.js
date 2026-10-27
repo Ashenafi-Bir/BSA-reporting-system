@@ -67,23 +67,30 @@ const RANGES = [
   { key: 'RANGE3', band: 'ABOVE_MIL' },   // > 1,000,000
 ];
 
-/* Build 27 SQL aggregate columns (3 types × 3 ranges × 3 metrics).
- * TOTAL is computed in JS as R1 + R2 + R3 (matches the reference SQL,
- * where total is implicit and always equals the union of the 3 bands). */
+/* ------------------------------------------------------------------ */
+/*  Build 27 range aggregate columns (3 types × 3 ranges × 3 metrics)
+ *  PLUS the reference query's grand-total columns (unchanged):
+ *      TOTAL_BALANCE / TOTAL_DEPOSITOR / TOTAL_ACCOUNT
+ * ------------------------------------------------------------------ */
 const sqlFields = [];
+
 for (const t of TYPES) {
   for (const r of RANGES) {
     sqlFields.push(
-      `SUM(CASE WHEN A.ACCOUNT_TYPE = '${t.acct}' AND A.BAL_BAND = '${r.band}' THEN A.LCY_CLOSING_BAL END) AS ${t.key}_${r.key}_AMOUNT`
-    );
-    sqlFields.push(
-      `COUNT(DISTINCT CASE WHEN A.ACCOUNT_TYPE = '${t.acct}' AND A.BAL_BAND = '${r.band}' THEN SUBSTR(A.ACCOUNT,4,7) END) AS ${t.key}_${r.key}_DEPOSITORS`
-    );
-    sqlFields.push(
+      `SUM(CASE WHEN A.ACCOUNT_TYPE = '${t.acct}' AND A.BAL_BAND = '${r.band}' THEN A.LCY_CLOSING_BAL ELSE 0 END) AS ${t.key}_${r.key}_AMOUNT`,
+      `COUNT(DISTINCT CASE WHEN A.ACCOUNT_TYPE = '${t.acct}' AND A.BAL_BAND = '${r.band}' THEN SUBSTR(A.ACCOUNT,4,7) END) AS ${t.key}_${r.key}_DEPOSITORS`,
       `COUNT(CASE WHEN A.ACCOUNT_TYPE = '${t.acct}' AND A.BAL_BAND = '${r.band}' THEN A.ACCOUNT END) AS ${t.key}_${r.key}_ACCOUNTS`
     );
   }
 }
+
+// Reference query's grand-total block — kept verbatim
+sqlFields.push(
+  `SUM(CASE WHEN A.ACCOUNT_TYPE IN ('Y','S','U') THEN A.LCY_CLOSING_BAL ELSE 0 END) AS TOTAL_BALANCE`,
+  `COUNT(DISTINCT CASE WHEN A.ACCOUNT_TYPE IN ('Y','S','U') THEN SUBSTR(A.ACCOUNT,4,7) END) AS TOTAL_DEPOSITOR`,
+  `COUNT(CASE WHEN A.ACCOUNT_TYPE IN ('Y','S','U') THEN A.ACCOUNT END) AS TOTAL_ACCOUNT`
+);
+
 const sqlFieldsBlock = sqlFields.join(',\n      ');
 
 /* ------------------------------------------------------------------ */
@@ -104,6 +111,7 @@ const emptyAccountType = () => ({
 const emptyLocation = () => ({
   urban: emptyAccountType(),
   rural: emptyAccountType(),
+  grandTotal: emptyMetric(),   // <— comes from SQL Total_Balance / Total_Depositor / Total_Account
 });
 
 /* ------------------------------------------------------------------ */
@@ -129,15 +137,18 @@ export async function fetchDepositByRangeAndRegion(startDate, endDate) {
   const endDateStr = formatOracleDate(endDate);
   logger.info(`Fetching Deposit by Range & Region data up to ${endDateStr}`);
 
+  /* This mirrors your reference query EXACTLY (same logic, same filters,
+   * same grand-total block) — only the 27 per-range aggregates were added
+   * on top so we can keep the existing structure. */
   const query = `
     WITH eligible_accounts AS (
       SELECT
-        C.CUST_AC_NO   AS ACC,
-        C.ACCOUNT_TYPE AS ACCOUNT_TYPE
+        C.CUST_AC_NO,
+        C.ACCOUNT_TYPE
       FROM FCUBSLIVE.STTM_CUST_ACCOUNT C
       WHERE C.RECORD_STAT = 'O'
          OR (C.RECORD_STAT = 'C'
-             AND C.MAKER_DT_STAMP > TO_DATE(:endDate, 'DD-MON-YYYY'))
+             AND C.MAKER_DT_STAMP > TO_DATE(:endDate, 'DD-MON-YYYY') + 1)
     ),
     latest_balance AS (
       SELECT
@@ -150,7 +161,8 @@ export async function fetchDepositByRangeAndRegion(startDate, endDate) {
           ORDER BY H.BKG_DATE DESC
         ) AS RN
       FROM FCUBSLIVE.ACTB_ACCBAL_HISTORY H
-      JOIN eligible_accounts E ON E.ACC = H.ACCOUNT
+      JOIN eligible_accounts E
+        ON E.CUST_AC_NO = H.ACCOUNT
       WHERE H.BKG_DATE <= TO_DATE(:endDate, 'DD-MON-YYYY')
     ),
     base_data AS (
@@ -168,14 +180,15 @@ export async function fetchDepositByRangeAndRegion(startDate, endDate) {
       WHERE L.RN = 1
         AND L.BRANCH_CODE <> '000'
         AND L.BRANCH_CODE < '600'
-        AND L.LCY_CLOSING_BAL >= 0
+        AND L.LCY_CLOSING_BAL > 0
     )
     SELECT
       B.BRANCH_ADDR3 AS BREGION,
-      'Urban' AS URBAN_RURAL,
+      'Urban' AS "Urban/Rural",
       ${sqlFieldsBlock}
     FROM base_data A
-    JOIN FCUBSLIVE.STTM_BRANCH B ON B.BRANCH_CODE = A.BRANCH_CODE
+    JOIN FCUBSLIVE.STTM_BRANCH B
+      ON B.BRANCH_CODE = A.BRANCH_CODE
     GROUP BY B.BRANCH_ADDR3
     ORDER BY B.BRANCH_ADDR3
   `;
@@ -187,8 +200,6 @@ export async function fetchDepositByRangeAndRegion(startDate, endDate) {
     regionData[region] = emptyLocation();
   }
 
-  // Copy SQL -> JS structure.
-  // TOTAL is computed in JS as RANGE1 + RANGE2 + RANGE3 (mirrors the reference).
   for (const row of result.rows) {
     const rawRegion = String(row.BREGION || '').toUpperCase().trim();
     const region = REGION_NAME_MAP[rawRegion];
@@ -196,10 +207,10 @@ export async function fetchDepositByRangeAndRegion(startDate, endDate) {
 
     const urban = regionData[region].urban;
 
+    // 3 ranges × 3 types — pulled from the SQL range aggregates
     for (const type of ['DEMAND', 'SAVING', 'TIME']) {
-      const typeKey = type.toLowerCase();  // demand / saving / time
+      const typeKey = type.toLowerCase();   // demand / saving / time
 
-      // Read the three bands from SQL
       for (const rangeKey of ['RANGE1', 'RANGE2', 'RANGE3']) {
         const prefix = `${type}_${rangeKey}`;
         const targetKey = rangeKey.toLowerCase(); // range1 / range2 / range3
@@ -210,26 +221,26 @@ export async function fetchDepositByRangeAndRegion(startDate, endDate) {
         };
       }
 
-      // TOTAL = R1 + R2 + R3 (per metric)
+      // Per-type totals are NOT in the reference SQL — still computed in JS
+      // (R1 + R2 + R3), same as before.
       urban[typeKey].total = {
-        amount:
-          urban[typeKey].range1.amount +
-          urban[typeKey].range2.amount +
-          urban[typeKey].range3.amount,
-        depositors:
-          urban[typeKey].range1.depositors +
-          urban[typeKey].range2.depositors +
-          urban[typeKey].range3.depositors,
-        accounts:
-          urban[typeKey].range1.accounts +
-          urban[typeKey].range2.accounts +
-          urban[typeKey].range3.accounts,
+        amount:     urban[typeKey].range1.amount     + urban[typeKey].range2.amount     + urban[typeKey].range3.amount,
+        depositors: urban[typeKey].range1.depositors + urban[typeKey].range2.depositors + urban[typeKey].range3.depositors,
+        accounts:   urban[typeKey].range1.accounts   + urban[typeKey].range2.accounts   + urban[typeKey].range3.accounts,
       };
     }
+
+    // Grand total — read DIRECTLY from the query (Total_Balance / Total_Depositor / Total_Account)
+    regionData[region].grandTotal = {
+      amount:     amt(row.TOTAL_BALANCE),
+      depositors: cnt(row.TOTAL_DEPOSITOR),
+      accounts:   cnt(row.TOTAL_ACCOUNT),
+    };
   }
 
   logger.info(
-    `Fetched Deposit-by-Range data for ${Object.keys(regionData).length} regions (amounts in Millions of Birr).`
+    `Fetched Deposit-by-Range data for ${Object.keys(regionData).length} regions ` +
+    `(amounts in Millions of Birr).`
   );
   return regionData;
 }

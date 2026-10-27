@@ -49,6 +49,22 @@ export const TARGET_REGIONS = [
 const AMOUNT_DIVISOR = 1_000_000;
 
 /* ------------------------------------------------------------------ */
+/*  The exact ACC_CODE list from the reference "Total_Balance" block.  */
+/*  Used to derive the grand total in SQL (do not recompute in JS).    */
+/* ------------------------------------------------------------------ */
+const TOTAL_ACC_IN = [
+  '101','303','305','301','304','302',
+  '204','212','214','216','217','220','225','226','221','222','224','201',
+  '215','219','227','228','208','218','223','205','230','231','232','233','234','235',
+  '236','237','238','239','240','243','244','245','246','247','248','249','229',
+  '207','206','211','202','209','203','210','213','241','242',
+  '401','402','403','404','405','406','407','408','409','410','411','412','413',
+  '102','107','115','116','114','103','104','105','108','109',
+  '110','111','112','113','117','118','119','501','502','503','122','123',
+  '124','125','126','127','121',
+].map(c => `'${c}'`).join(',');
+
+/* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
 const emptyMetric = () => ({ amount: 0, depositors: 0, accounts: 0 });
@@ -71,6 +87,7 @@ const emptyAccountType = () => ({
 const emptyLocation = () => ({
   urban: emptyAccountType(),
   rural: emptyAccountType(),
+  grandTotal: emptyMetric(),   // <— read from SQL Total_Balance / Total_Depositor / Total_Account
 });
 
 function num(v) {
@@ -95,26 +112,15 @@ export async function fetchDepositBySectorIFB(startDate, endDate) {
   const endDateStr = formatOracleDate(endDate);
   logger.info(`Fetching IFB Deposit by Sector & Region data up to ${endDateStr}`);
 
-  // -------------------------------------------------------------------
-  //  Matches the reference SQL:
-  //    1. eligible_accounts — RECORD_STAT = 'O' OR (C & MAKER_DT > end)
-  //    2. ROW_NUMBER() → latest BKG_DATE per account (across all branches)
-  //    3. IFB branches only: BRANCH_CODE > '600'
-  //    4. Positive / zero balances only: LCY_CLOSING_BAL >= 0
-  //    5. Aggregate once grouped by region
-  //
-  //  Speedups vs. reference:
-  //    - SUBSTR(ACCOUNT,4,7) computed once as CUST_ID, reused in every
-  //      COUNT(DISTINCT …) — avoids 33 recomputations per row.
-  //    - MATERIALIZE keeps the small IFB-only set in memory.
-  // -------------------------------------------------------------------
+  /* Mirrors the reference query exactly, PLUS the reference's
+   * grand-total block (Total_Balance / Total_Depositor / Total_Account). */
   const query = `
     WITH eligible_accounts AS (
       SELECT C.CUST_AC_NO AS ACC
       FROM FCUBSLIVE.STTM_CUST_ACCOUNT C
       WHERE C.RECORD_STAT = 'O'
          OR (C.RECORD_STAT = 'C'
-             AND C.MAKER_DT_STAMP > TO_DATE(:endDate, 'DD-MON-YYYY'))
+             AND C.MAKER_DT_STAMP > TO_DATE(:endDate, 'DD-MON-YYYY') + 1)
     ),
     ifb_rows AS (
       SELECT
@@ -140,8 +146,9 @@ export async function fetchDepositBySectorIFB(startDate, endDate) {
         R.CUST_ID
       FROM ifb_rows R
       WHERE R.RN = 1
+        AND R.BRANCH_CODE <> '000'
         AND R.BRANCH_CODE > '600'
-        AND R.LCY_CLOSING_BAL >= 0
+        AND R.LCY_CLOSING_BAL > 0
     )
     SELECT
       B.BRANCH_ADDR3 AS BREGION,
@@ -164,9 +171,9 @@ export async function fetchDepositBySectorIFB(startDate, endDate) {
       COUNT(DISTINCT CASE WHEN A.ACC_CODE = '102' THEN A.CUST_ID END) AS DEMAND_BANK_DEPOSITOR,
       COUNT(CASE WHEN A.ACC_CODE = '102' THEN A.ACCOUNT END) AS DEMAND_BANK_ACCOUNT,
 
-      SUM(CASE WHEN A.ACC_CODE IN ('401','402','403','404','405','406','407','408','409','410','411','412','413') AND A.LCY_CLOSING_BAL >= 0 THEN A.LCY_CLOSING_BAL END) AS DEMAND_OTHER,
-      COUNT(DISTINCT CASE WHEN A.ACC_CODE IN ('401','402','403','404','405','406','407','408','409','410','411','412','413') AND A.LCY_CLOSING_BAL >= 0 THEN A.CUST_ID END) AS DEMAND_OTHER_DEPOSITOR,
-      COUNT(CASE WHEN A.ACC_CODE IN ('401','402','403','404','405','406','407','408','409','410','411','412','413') AND A.LCY_CLOSING_BAL >= 0 THEN A.ACCOUNT END) AS DEMAND_OTHER_ACCOUNT,
+      SUM(CASE WHEN A.ACC_CODE IN ('401','402','403','404','405','406','407','408','409','410','411','412','413') AND A.LCY_CLOSING_BAL > 0 THEN A.LCY_CLOSING_BAL END) AS DEMAND_OTHER,
+      COUNT(DISTINCT CASE WHEN A.ACC_CODE IN ('401','402','403','404','405','406','407','408','409','410','411','412','413') AND A.LCY_CLOSING_BAL > 0 THEN A.CUST_ID END) AS DEMAND_OTHER_DEPOSITOR,
+      COUNT(CASE WHEN A.ACC_CODE IN ('401','402','403','404','405','406','407','408','409','410','411','412','413') AND A.LCY_CLOSING_BAL > 0 THEN A.ACCOUNT END) AS DEMAND_OTHER_ACCOUNT,
 
       /* ---------- SAVING ---------- */
       SUM(CASE WHEN A.ACC_CODE IN ('207','206','211','202','209','203','210','213','241','242') THEN A.LCY_CLOSING_BAL END) AS SAVING_PUBLIC_ENT,
@@ -192,7 +199,12 @@ export async function fetchDepositBySectorIFB(startDate, endDate) {
 
       SUM(CASE WHEN A.ACC_CODE = '304' THEN A.LCY_CLOSING_BAL END) AS TD_BANK,
       COUNT(DISTINCT CASE WHEN A.ACC_CODE = '304' THEN A.CUST_ID END) AS TD_BANK_DEPOSITOR,
-      COUNT(CASE WHEN A.ACC_CODE = '304' THEN A.ACCOUNT END) AS TD_BANK_ACCOUNT
+      COUNT(CASE WHEN A.ACC_CODE = '304' THEN A.ACCOUNT END) AS TD_BANK_ACCOUNT,
+
+      /* ---------- GRAND TOTAL (reference query block, verbatim) ---------- */
+      SUM(CASE WHEN A.ACC_CODE IN (${TOTAL_ACC_IN}) THEN A.LCY_CLOSING_BAL END) AS TOTAL_BALANCE,
+      COUNT(DISTINCT CASE WHEN A.ACC_CODE IN (${TOTAL_ACC_IN}) THEN A.CUST_ID END) AS TOTAL_DEPOSITOR,
+      COUNT(CASE WHEN A.ACC_CODE IN (${TOTAL_ACC_IN}) THEN A.ACCOUNT END) AS TOTAL_ACCOUNT
 
     FROM base_data A
     JOIN FCUBSLIVE.STTM_BRANCH B ON B.BRANCH_CODE = A.BRANCH_CODE
@@ -273,6 +285,13 @@ export async function fetchDepositBySectorIFB(startDate, endDate) {
       amount:     amt(row.TD_BANK),
       depositors: cnt(row.TD_BANK_DEPOSITOR),
       accounts:   cnt(row.TD_BANK_ACCOUNT),
+    };
+
+    // ---- GRAND TOTAL — read directly from SQL ----
+    regionData[region].grandTotal = {
+      amount:     amt(row.TOTAL_BALANCE),
+      depositors: cnt(row.TOTAL_DEPOSITOR),
+      accounts:   cnt(row.TOTAL_ACCOUNT),
     };
   }
 

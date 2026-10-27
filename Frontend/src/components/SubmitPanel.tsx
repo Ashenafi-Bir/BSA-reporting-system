@@ -2,12 +2,13 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { triggerReport, previewReport } from '../services/api';
 import { REPORT_METADATA } from '../constants/reports';
 import dictionaryData from '../data/dictionary.json';
+import DynamicItemsView from './DynamicItemsView';   // ← NEW
 
 interface SubmitPanelProps {
   reports: { key: string; name: string; isWeekly: boolean }[];
   role: string;
   allowedReports: string[];
-  selectedReportKey: string; // from parent
+  selectedReportKey: string;
   onReportSelect: (key: string) => void;
 }
 
@@ -21,7 +22,6 @@ interface DictionaryItem {
   _dataType?: string;
   _required?: boolean;
 }
-
 interface PayloadItem {
   Code: string;
   Value: string;
@@ -32,23 +32,18 @@ interface PayloadItem {
 const pad = (n: number) => String(n).padStart(2, '0');
 const toInputDate = (d: Date) =>
   `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-
 const todayStr = () => toInputDate(new Date());
-
 const firstOfMonthStr = () => {
   const d = new Date();
   return toInputDate(new Date(d.getFullYear(), d.getMonth(), 1));
 };
-
 const lastOfMonthStr = () => {
   const d = new Date();
   return toInputDate(new Date(d.getFullYear(), d.getMonth() + 1, 0));
 };
-
-/** Thu → Wed of the current week (for weekly reports). */
 const currentWeekRange = () => {
   const today = new Date();
-  const day = today.getDay();               // 0=Sun, 4=Thu
+  const day = today.getDay();
   const daysToThursday = (day - 4 + 7) % 7;
   const start = new Date(today);
   start.setDate(today.getDate() - daysToThursday);
@@ -72,7 +67,6 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
   const [statusMessage, setStatusMessage] = useState<string>('');
   const [payloadPreview, setPayloadPreview] = useState<any>(null);
 
-  // Date states
   const [selectedDate, setSelectedDate] = useState<string>(todayStr());
   const [startDate, setStartDate] = useState<string>(firstOfMonthStr());
   const [endDate, setEndDate] = useState<string>(lastOfMonthStr());
@@ -81,7 +75,6 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
   const [sortField, setSortField] = useState<SortField>('code');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
 
-  // Modal state
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [confirmData, setConfirmData] = useState<{
     reportKey: string;
@@ -98,15 +91,11 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
     ? REPORT_METADATA[selectedReportKey]
     : null;
 
-  /** 'single' → one date; 'range' → start + end. Default 'range'. */
   const dateMode: 'single' | 'range' = selectedReportMeta?.dateMode ?? 'range';
 
-  /* ------------------------------------------------------------------ */
-  /*  Auto-populate sensible defaults whenever the report changes        */
-  /* ------------------------------------------------------------------ */
+  /* Auto-populate defaults */
   useEffect(() => {
     if (!selectedReportMeta) return;
-
     if (selectedReportMeta.dateMode === 'single') {
       setSelectedDate(todayStr());
     } else if (isWeekly) {
@@ -114,21 +103,16 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
       setStartDate(start);
       setEndDate(end);
     } else {
-      // Monthly / Quarterly → default to current month
       setStartDate(firstOfMonthStr());
       setEndDate(lastOfMonthStr());
     }
-    // Clear stale preview/result so nothing looks out of date
     setPayloadPreview(null);
     setResult(null);
     setStatusMessage('');
     setError(null);
   }, [selectedReportKey, selectedReportMeta, isWeekly]);
 
-  /* ------------------------------------------------------------------ */
-  /*  Build the date param the backend understands                       */
-  /* ------------------------------------------------------------------ */
-  const buildDateParam = (): { dateParam: string; dateDisplay: string } | null => {
+  const buildDateParam = () => {
     if (dateMode === 'single') {
       if (!selectedDate) return null;
       return { dateParam: selectedDate, dateDisplay: `on ${selectedDate}` };
@@ -141,10 +125,9 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
     };
   };
 
-  /* ---------- Trigger with confirmation modal ---------- */
   const handleTrigger = async () => {
     if (!isAdmin) {
-      setError('You do not have permission to run reports. Only administrators can submit reports.');
+      setError('You do not have permission to run reports.');
       setStatusMessage('❌ Permission denied.');
       return;
     }
@@ -190,7 +173,6 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
     setStatusMessage('⏳ Submission cancelled by user.');
   };
 
-  /* ---------- Preview ---------- */
   const handlePreview = async () => {
     const dateInfo = buildDateParam();
     if (!dateInfo) {
@@ -205,8 +187,10 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
     try {
       const data = await previewReport(selectedReportKey, dateInfo.dateParam);
       setPayloadPreview(data);
+      const returnCount = data.ReturnItemsList?.length || 0;
+      const dynamicCount = data.DynamicItemsList?.length || 0;
       setStatusMessage(
-        `✅ Payload fetched successfully! ${data.ReturnItemsList?.length || 0} fields loaded.`
+        `✅ Payload fetched — ${returnCount} return item(s), ${dynamicCount} dynamic area(s).`
       );
     } catch (err: any) {
       setError(err.response?.data?.error || err.message);
@@ -216,7 +200,6 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
     }
   };
 
-  /* ---------- Download ---------- */
   const handleDownload = () => {
     if (!payloadPreview) return;
     setDownloadLoading(true);
@@ -241,7 +224,6 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
     }
   };
 
-  /* ---------- Sorting ---------- */
   const handleSort = (field: SortField) => {
     if (sortField === field) {
       setSortDirection(prev => (prev === 'asc' ? 'desc' : 'asc'));
@@ -251,7 +233,7 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
     }
   };
 
-  /* ---------- Dictionary lookup ---------- */
+  /* ---------- Dictionary lookup (ReturnItems) ---------- */
   const dictionaryForReport =
     (dictionaryData as any)[selectedReportKey] || { ReturnItemsList: [] };
   const descriptionMap: Record<string, string> = {};
@@ -261,27 +243,27 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
     }
   });
 
+  /* ---------- Dictionary (DynamicItems schema) ---------- */
+  const dictionaryDynamicAreas =
+    (dictionaryData as any)[selectedReportKey]?.DynamicItemsList;
+
   const previewWithDesc: PayloadItem[] = useMemo(() => {
     if (!payloadPreview?.ReturnItemsList) return [];
-
     let items: PayloadItem[] = payloadPreview.ReturnItemsList.map((item: any) => ({
       Code: item.Code,
       Value: String(item.Value ?? ''),
       description: descriptionMap[item.Code] || 'No description',
     }));
-
     if (!showZeroValues) {
       items = items.filter(
         (item: PayloadItem) => item.Value !== '0' && item.Value !== ''
       );
     }
-
     const compare = (a: PayloadItem, b: PayloadItem) => {
       let valA: string | number;
       let valB: string | number;
       if (sortField === 'code') {
-        valA = a.Code;
-        valB = b.Code;
+        valA = a.Code; valB = b.Code;
       } else {
         const numA = parseFloat(a.Value);
         const numB = parseFloat(b.Value);
@@ -292,14 +274,15 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
       if (valA > valB) return sortDirection === 'asc' ? 1 : -1;
       return 0;
     };
-
     items.sort(compare);
     return items;
   }, [payloadPreview, descriptionMap, showZeroValues, sortField, sortDirection]);
 
-  const totalFields = payloadPreview?.ReturnItemsList?.length || 0;
+  const totalReturnFields = payloadPreview?.ReturnItemsList?.length || 0;
+  const hasDynamic =
+    !!payloadPreview?.DynamicItemsList &&
+    payloadPreview.DynamicItemsList.length > 0;
 
-  /* ---------- Render guard ---------- */
   if (!reports.length) {
     return <div className="card">No reports available for your role.</div>;
   }
@@ -326,7 +309,6 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
           </div>
 
           {dateMode === 'single' ? (
-            /* ---------- Single day ---------- */
             <div className="field">
               <label htmlFor="reportDate">Report Date</label>
               <input
@@ -337,7 +319,6 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
               />
             </div>
           ) : (
-            /* ---------- Date range ---------- */
             <>
               <div className="field">
                 <label htmlFor="startDate">Start Date</label>
@@ -361,20 +342,25 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
           )}
 
           <div className="actions">
-          
             <button
               className="btn btn-primary"
               onClick={handlePreview}
-              disabled={previewLoading ||  !Boolean(selectedReportKey) ||
-  Boolean(rangeInvalid)}
+              disabled={
+                previewLoading ||
+                !Boolean(selectedReportKey) ||
+                Boolean(rangeInvalid)
+              }
             >
               {previewLoading ? 'Loading...' : 'Preview Payload'}
             </button>
-              <button
+            <button
               className="btn btn-secondary"
               onClick={handleTrigger}
               disabled={
-                submitting || !isAdmin || !Boolean(selectedReportKey) || Boolean(rangeInvalid)
+                submitting ||
+                !isAdmin ||
+                !Boolean(selectedReportKey) ||
+                Boolean(rangeInvalid)
               }
               title={!isAdmin ? 'Only administrators can run reports' : ''}
             >
@@ -395,7 +381,6 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
         {rangeInvalid && (
           <div className="error">Start date must be before or equal to end date.</div>
         )}
-
         {statusMessage && (
           <div
             className={`status-message ${
@@ -420,63 +405,83 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
       )}
 
       {payloadPreview && (
-        <div className="card payload-card">
-          <div className="payload-header">
-            <h3>
-              Payload Preview – <span>{previewWithDesc.length}</span> / {totalFields} fields
-            </h3>
-            <div>
-              <button
-                className="btn btn-sm btn-secondary"
-                onClick={() => setShowZeroValues(!showZeroValues)}
-              >
-                {showZeroValues ? 'Hide Zero Values' : 'Show Zero Values'}
-              </button>
+        <>
+          {/* ---------- Return Items ---------- */}
+          <div className="card payload-card">
+            <div className="payload-header">
+              <h3>
+                Return Items — <span>{previewWithDesc.length}</span> / {totalReturnFields} fields
+              </h3>
+              <div>
+                <button
+                  className="btn btn-sm btn-secondary"
+                  onClick={() => setShowZeroValues(!showZeroValues)}
+                >
+                  {showZeroValues ? 'Hide Zero Values' : 'Show Zero Values'}
+                </button>
+              </div>
+            </div>
+            <div className="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th onClick={() => handleSort('code')} style={{ cursor: 'pointer' }}>
+                      Code &amp; Description{' '}
+                      {sortField === 'code' && (sortDirection === 'asc' ? '▲' : '▼')}
+                    </th>
+                    <th onClick={() => handleSort('value')} style={{ cursor: 'pointer' }}>
+                      Value{' '}
+                      {sortField === 'value' && (sortDirection === 'asc' ? '▲' : '▼')}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {previewWithDesc.map((item: PayloadItem, idx: number) => (
+                    <tr key={idx}>
+                      <td>
+                        <span className="code">{item.Code}</span>
+                        <span className="description" title={item.description}>
+                          – {item.description}
+                        </span>
+                      </td>
+                      <td className="value">{item.Value}</td>
+                    </tr>
+                  ))}
+                  {previewWithDesc.length === 0 && (
+                    <tr>
+                      <td colSpan={2} className="empty-state">
+                        No fields match the current filters.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <div className="table-footer">
+              Showing {previewWithDesc.length} of {totalReturnFields} fields.
             </div>
           </div>
-          <div className="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  <th onClick={() => handleSort('code')} style={{ cursor: 'pointer' }}>
-                    Code &amp; Description{' '}
-                    {sortField === 'code' && (sortDirection === 'asc' ? '▲' : '▼')}
-                  </th>
-                  <th onClick={() => handleSort('value')} style={{ cursor: 'pointer' }}>
-                    Value{' '}
-                    {sortField === 'value' && (sortDirection === 'asc' ? '▲' : '▼')}
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {previewWithDesc.map((item: PayloadItem, idx: number) => (
-                  <tr key={idx}>
-                    <td>
-                      <span className="code">{item.Code}</span>
-                      <span className="description" title={item.description}>
-                        – {item.description}
-                      </span>
-                    </td>
-                    <td className="value">{item.Value}</td>
-                  </tr>
-                ))}
-                {previewWithDesc.length === 0 && (
-                  <tr>
-                    <td colSpan={2} className="empty-state">
-                      No fields match the current filters.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-          <div className="table-footer">
-            Showing {previewWithDesc.length} of {totalFields} fields.
-          </div>
-        </div>
+
+          {/* ---------- Dynamic Items ---------- */}
+          {hasDynamic && (
+            <div className="card dynamic-card">
+              <div className="payload-header">
+                <h3>
+                  Dynamic Items —{' '}
+                  <span>{payloadPreview.DynamicItemsList.length}</span> area
+                  {payloadPreview.DynamicItemsList.length !== 1 ? 's' : ''}
+                </h3>
+              </div>
+              <DynamicItemsView
+                items={payloadPreview.DynamicItemsList}
+                dictionary={dictionaryDynamicAreas}
+                showZeroValues={showZeroValues}
+              />
+            </div>
+          )}
+        </>
       )}
 
-      {/* Confirmation Modal */}
       {showConfirmModal && confirmData && (
         <div className="modal-overlay" onClick={handleCancelSubmit}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>

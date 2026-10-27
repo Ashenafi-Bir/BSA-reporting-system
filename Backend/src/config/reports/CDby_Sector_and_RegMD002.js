@@ -11,26 +11,25 @@ const CODES_PER_REGION    = 108;     // 6 blocks × 18 fields
 const TOTAL_DEPOSITS_BASE = 48764;   // "Total Deposits" block
 
 /* Each block has 6 categories × 3 metrics = 18 codes */
-const CATEGORIES = ['pubEnt', 'private', 'gov', 'bank', 'other'];   // 5 real ones
+const CATEGORIES = ['pubEnt', 'private', 'gov', 'bank', 'other'];
 const CATEGORY_LABELS = {
-  pubEnt:  'Pub.  Enterprise',   // note double space (matches JSON)
+  pubEnt:  'Pub.  Enterprise',
   private: 'Private & Coop.',
   gov:     'Regional Gov.',
   bank:    'Banks',
   other:   'Others',
-  total:   'Total ',              // note trailing space (matches JSON)
+  total:   'Total ',
 };
 
 const METRICS = ['amount', 'depositors', 'accounts'];
 const METRIC_LABELS = {
   amount:     'Amount',
-  depositors: '# of Depositors ',   // trailing space
-  accounts:   '# of Accounts ',     // trailing space
+  depositors: '# of Depositors ',
+  accounts:   '# of Accounts ',
 };
 
-/* Block order inside each region (matches JSON order) */
 const BLOCKS = [
-  { key: 'main',   prefix: '',       offset: 0  },
+  { key: 'main',   prefix: '',        offset: 0  },
   { key: 'demand', prefix: 'Demand_', offset: 18 },
   { key: 'saving', prefix: 'Saving_', offset: 36 },
   { key: 'time',   prefix: 'Time_',   offset: 54 },
@@ -39,12 +38,11 @@ const BLOCKS = [
 ];
 
 /* ------------------------------------------------------------------ */
-/*  Value calculation                                                  */
+/*  Value calculation (5 real sectors — used for every block)         */
 /* ------------------------------------------------------------------ */
 function computeSectorValue(regionData, blockKey, category, metric) {
   if (!regionData) return 0;
 
-  // Urban / Rural blocks: only that location, sum across account types
   if (blockKey === 'urban' || blockKey === 'rural') {
     const loc = regionData[blockKey];
     if (!loc) return 0;
@@ -56,7 +54,6 @@ function computeSectorValue(regionData, blockKey, category, metric) {
     return total;
   }
 
-  // Demand / Saving / Time blocks: sum urban + rural
   if (blockKey === 'demand' || blockKey === 'saving' || blockKey === 'time') {
     let total = 0;
     for (const loc of ['urban', 'rural']) {
@@ -68,7 +65,6 @@ function computeSectorValue(regionData, blockKey, category, metric) {
     return total;
   }
 
-  // Main block: sum Demand + Saving + Time across both locations
   if (blockKey === 'main') {
     let total = 0;
     for (const loc of ['urban', 'rural']) {
@@ -94,7 +90,6 @@ export default {
   finYear:   new Date().getFullYear(),
   dataFetcher: fetchDepositBySectorAndRegion,
 
-  // The template expects every code (many of them legitimately zero)
   includeZeroValues: true,
 
   prepare(rawData) {
@@ -128,7 +123,7 @@ export default {
           });
         });
 
-        // "Total" category = sum of the 5 sectors (reads from fieldMap)
+        // "Total" category column
         METRICS.forEach((metric, metricIdx) => {
           const code = `MD002_${regionBase + block.offset + 5 * 3 + metricIdx}`;
           const description = block.prefix
@@ -140,6 +135,12 @@ export default {
             description,
             source: 'calculated',
             calculation: (fieldMap) => {
+              // MAIN block Total column comes straight from the SQL
+              // grand-total columns (Total_Balance / Total_Depositor / Total_Account).
+              if (block.key === 'main') {
+                return regionData?.grandTotal?.[metric] || 0;
+              }
+              // Other blocks: sum of the 5 sector codes
               let sum = 0;
               for (let i = 0; i < CATEGORIES.length; i++) {
                 const c = `MD002_${regionBase + block.offset + i * 3 + metricIdx}`;
@@ -175,7 +176,7 @@ export default {
       });
     });
 
-    // Total Deposits - Total column (sum of the 5 categories)
+    // Total Deposits — Total column = sum of the 5 categories
     METRICS.forEach((metric, metricIdx) => {
       const code = `MD002_${TOTAL_DEPOSITS_BASE + 5 * 3 + metricIdx}`;
       const description = `Total Deposits_${CATEGORY_LABELS.total}_${METRIC_LABELS[metric]}`;
