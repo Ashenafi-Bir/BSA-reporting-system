@@ -94,7 +94,6 @@ const buildDownloadPayload = (
 const SubmitPanel: React.FC<SubmitPanelProps> = ({
   reports,
   role,
-  allowedReports,
   selectedReportKey,
   onReportSelect,
 }) => {
