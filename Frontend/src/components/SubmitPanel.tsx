@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { triggerReport, previewReport } from '../services/api';
 import { REPORT_METADATA } from '../constants/reports';
 import dictionaryData from '../data/dictionary.json';
-import DynamicItemsView from './DynamicItemsView';   // ← NEW
+import DynamicItemsView from './DynamicItemsView';
 
 interface SubmitPanelProps {
   reports: { key: string; name: string; isWeekly: boolean }[];
@@ -52,6 +52,45 @@ const currentWeekRange = () => {
   return { start: toInputDate(start), end: toInputDate(end) };
 };
 
+/* ---------- Return-Items-only enrichment ---------- */
+/**
+ * Returns a shallow-copied payload where ONLY `ReturnItemsList` is
+ * transformed according to `withDescription`.
+ *
+ * `DynamicItemsList` is passed through **byte-for-byte unchanged**.
+ */
+const buildDownloadPayload = (
+  payload: any,
+  returnDictMap: Record<string, DictionaryItem>,
+  withDescription: boolean
+) => {
+  const processedReturnItems = (payload?.ReturnItemsList || []).map(
+    (item: any) => {
+      if (!withDescription) {
+        // strip _description, keep everything else as-is
+        const { _description, ...rest } = item;
+        return rest;
+      }
+      const dictEntry = returnDictMap[item.Code];
+      const desc = dictEntry?._description || item._description;
+      const dataType = dictEntry?._dataType || item._dataType;
+
+      const result: any = { ...item };
+      if (desc) result._description = desc;
+      else delete result._description;
+      if (dataType) result._dataType = dataType;
+      return result;
+    }
+  );
+
+  return {
+    ...payload,
+    ReturnItemsList: processedReturnItems,
+    // 👇 untouched — same reference, same structure, same values
+    DynamicItemsList: payload?.DynamicItemsList,
+  };
+};
+
 const SubmitPanel: React.FC<SubmitPanelProps> = ({
   reports,
   role,
@@ -82,6 +121,9 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
     reportName: string;
     dateDisplay: string;
   } | null>(null);
+
+  /* NEW: JSON download options modal */
+  const [showDownloadOptions, setShowDownloadOptions] = useState(false);
 
   const currentReport = reports.find(r => r.key === selectedReportKey);
   const isWeekly = currentReport?.isWeekly || false;
@@ -200,23 +242,50 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
     }
   };
 
+  /* ---------- Download: opens the options modal ---------- */
   const handleDownload = () => {
     if (!payloadPreview) return;
+    setShowDownloadOptions(true);
+  };
+
+  /* ---------- Download: performs the actual file creation ---------- */
+  const performDownload = (withDescription: boolean) => {
+    setShowDownloadOptions(false);
+    if (!payloadPreview) return;
+
     setDownloadLoading(true);
     try {
-      const blob = new Blob(
-        [JSON.stringify(payloadPreview, null, 2)],
-        { type: 'application/json' }
+      /* Build a code → dictionary-entry lookup for ReturnItems only */
+      const returnDictMap: Record<string, DictionaryItem> = {};
+      ((dictionaryData as any)[selectedReportKey]?.ReturnItemsList || []).forEach(
+        (item: DictionaryItem) => {
+          if (item.Code) returnDictMap[item.Code] = item;
+        }
       );
+
+      /* Only ReturnItemsList is transformed; DynamicItemsList untouched */
+      const downloadPayload = buildDownloadPayload(
+        payloadPreview,
+        returnDictMap,
+        withDescription
+      );
+
+      const blob = new Blob([JSON.stringify(downloadPayload, null, 2)], {
+        type: 'application/json',
+      });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       const suffix =
         dateMode === 'range' ? `${startDate}_to_${endDate}` : selectedDate;
-      a.download = `payload_${suffix}.json`;
+      const label = withDescription ? 'with-desc' : 'without-desc';
+      a.download = `payload_${selectedReportKey}_${suffix}_${label}.json`;
       a.click();
       URL.revokeObjectURL(url);
-      setStatusMessage('✅ JSON downloaded successfully!');
+
+      setStatusMessage(
+        `✅ JSON downloaded (Return Items ${withDescription ? 'with' : 'without'} descriptions).`
+      );
     } catch (err: any) {
       setStatusMessage(`❌ Download failed: ${err.message}`);
     } finally {
@@ -500,6 +569,76 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
               </button>
               <button className="btn btn-primary" onClick={handleConfirmSubmit}>
                 Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---------- JSON download options modal (Return Items only) ---------- */}
+      {showDownloadOptions && (
+        <div
+          className="modal-overlay"
+          onClick={() => setShowDownloadOptions(false)}
+        >
+          <div
+            className="modal-content download-modal"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3>Download JSON</h3>
+            <p className="modal-message">
+              Choose whether the <strong>Return Items</strong> entries in the
+              downloaded file should include their human-readable{' '}
+              <code>_description</code>.
+              <br />
+              <span className="download-modal-note">
+                Dynamic items are always downloaded exactly as received.
+              </span>
+            </p>
+
+            <div className="download-options">
+              <button
+                type="button"
+                className="download-option"
+                onClick={() => performDownload(true)}
+              >
+                <div className="download-option-icon with-desc">Aa</div>
+                <div className="download-option-content">
+                  <div className="download-option-title">
+                    With Descriptions
+                    <span className="download-option-tag">Recommended</span>
+                  </div>
+                  <div className="download-option-desc">
+                    Each Return Item is matched to its dictionary description
+                    by <code>Code</code> — good for reading and review.
+                  </div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                className="download-option"
+                onClick={() => performDownload(false)}
+              >
+                <div className="download-option-icon without-desc">{'{ }'}</div>
+                <div className="download-option-content">
+                  <div className="download-option-title">
+                    Without Descriptions
+                  </div>
+                  <div className="download-option-desc">
+                    Return Items are stripped of <code>_description</code> —
+                    ideal for automated downstream ingestion.
+                  </div>
+                </div>
+              </button>
+            </div>
+
+            <div className="modal-actions">
+              <button
+                className="btn btn-secondary"
+                onClick={() => setShowDownloadOptions(false)}
+              >
+                Cancel
               </button>
             </div>
           </div>
